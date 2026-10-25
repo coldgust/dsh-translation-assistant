@@ -294,9 +294,3 @@ Entries under `models` with `provider: bilibili-translate` mean the route is liv
 - A public demo deployment: no SLA, no published rate limit, and it may change or disappear. A playground route, not production capacity.
 - Context is 24,576 tokens on the 35B, while this plugin accepts documents up to 120,000 characters. Batches are 6 paragraphs or 16 sentences, so normal documents fit; a single paragraph of tens of thousands of characters does not. Drop `concurrency` to `2` for the demo endpoint.
 - Do not paste a real key. The endpoint ignores it, and whatever you type is stored in your local credential store.
-
-## License
-
-Apache License 2.0. The full text is in [LICENSE](LICENSE).
-
-Copyright 2026 coldgust
