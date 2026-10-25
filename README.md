@@ -1,32 +1,60 @@
 # Translation Assistant
 
-A DeepSeek Harness plugin that adds a translation workspace to the Web GUI: translate text, an image, or a whole file, compare source and translation segment by segment, edit the output, switch the model per session, and keep every document on this device.
+A DeepSeek Harness plugin that turns the Web GUI into a translation workspace: paste text, drop a file, or paste a screenshot, read the source and the translation side by side, edit the output, and let a second model review what a first one drafted. Everything stays on this device, and the model can be switched per request.
 
 [中文](README.zh.md)
 
-## Features
+![The comparison workspace: source and translation side by side, scores visible](docs/screenshots/workspace.png)
 
-- **Comparison workspace** — one click translates the pasted text at two granularities. `By paragraph` is the default view and `By sentence` switches to sentences. A single request translates both at once, so switching views costs nothing.
-- **Editable output** — every segment is a source block plus a textarea. Source and translation stretch to the same height, and the box grows with its text instead of showing an inner scrollbar. The three views stay in step: editing a sentence in `By sentence` re-joins its paragraph from that paragraph's sentence translations, so `By paragraph` and `Full text` update immediately; editing a paragraph in `By paragraph` or `Full text` splits it back over that paragraph's sentences at sentence boundaries. When the two counts differ, extra sentences are left empty and neighbouring pieces are merged — text is never cut mid-sentence.
-- **Full text with three display modes** — the `Full text` tab shows the joined document as `Translation` (default, editable), `Source` (read-only), or `Compare` (side by side, stacked on narrow screens). Edits are split on blank lines and written back onto the matching segments, so the comparison views stay in sync. `Copy translation` / `Copy source` and the document-level score live here.
-- **On-device history** — every successful translation is saved as an entry. A right-hand drawer lists up to 200 documents with the title (first source line), last-used time, language pair, and segment counts. Search matches source or translation (case-insensitive, space-separated keywords are AND-ed) and quotes the hit with surrounding context, highlighting every keyword. Pin an entry to keep it on top without touching its last-used time; deleting takes two clicks.
-- **Image OCR translation** — paste a screenshot or pick an image; the vision model transcribes it, fills the source box, and translates. Large images are downscaled to a 2048 px long edge and re-encoded as JPEG in the browser before upload.
-- **File translation** — `Translate file` (or dropping a file on the source box) imports `.txt`, `.md`, `.log`, `.html`, `.htm`, and `.docx`, then translates it in one go. Text files are read as UTF-8; Word documents are unpacked in the browser — no library, no upload of the raw file — and reduced to paragraphs; HTML pages lose scripts, styles, and the head first, so only visible prose reaches the model. The imported name stays on the document, and `Download translation` in `Full text` writes the result back out: `.md` for Markdown, a `<p>`-per-paragraph HTML document for HTML (styling and inline tags are not preserved), `.txt` for everything else.
-- **Model switching** — the header chip becomes a picker as soon as the Host's LLM registry advertises more than one model, grouped by provider: `Follow default` keeps tracking the profile's own selection, and any other entry pins that provider/model for translation, retranslation, scoring, and OCR from then on. The choice is remembered on this device and never rewrites existing text. Asking for a model that has since disappeared falls back to the default with a notice instead of failing every request, and a provider whose listing failed is named above the editor rather than silently leaving the page without a picker. The [appendix](#appendix-adding-bilibilis-index-translate-models-as-a-route) walks through registering an outside endpoint (Bilibili Index-Translate) as one of those routes.
-- **AI retranslation** — `AI retranslate` redoes one segment; `Retranslate with prompt` sends a request such as “more colloquial” or “keep the legal terms” along with the source and current translation.
-- **Optional AI scoring** — scores stay hidden on every load. `AI score` scores one segment, `Score all` scores the current view (becoming `Rescore` once every segment already has a score), `Full-text score` scores the whole document, and the toolbar toggle reveals or hides everything fetched. Editing a translation clears the score it invalidated.
-- **Apply the feedback** — once a segment has a score, `Apply suggestion` sits at the end of its score comment line and sends that score and comment back as the instruction for a fresh retranslation, so the new version answers the reviewer directly; the stale score is dropped. When every segment in the view is scored, the toolbar adds `Apply all`, which rewrites them three at a time and writes each result back through the same path as a manual retranslation. `Full text` shows the same action on its score line after `Full-text score`, rewriting the document paragraph by paragraph under the document feedback. All three views share one rule: **while scores are hidden, no suggestion button is shown**.
-- **Revision history** — each document keeps up to 20 snapshots: the machine translation as a baseline, one before every AI retranslation or suggestion pass, one before each rollback, and any you save by hand. The `Revisions` entry in the header opens a drawer with the current text on top and the snapshots below, each labelled, timestamped, and quoting how many segments differ from the current text plus a preview. `Restore` puts a snapshot back — the text it replaces is snapshotted first, so a rollback can itself be undone. Deleting a revision takes two clicks.
-- **Agent tool** — the same engine is exposed as the `translation_assistant` tool (`action: translate | retranslate | score | score_document`), so the assistant can translate or review text in chat.
+## What you get
 
-## Everyday flow
+### Translate
 
-1. Paste the source (blank lines start a new paragraph), drop a `.txt` / `.md` / `.html` / `.docx` file, or paste/pick an image.
-2. Pick the source and target languages, then press `Translate`. If you need a different model, switch it in the header first — the choice applies to this and later passes.
-3. Fix any segment in place, or ask AI to retranslate it — with an instruction if you want. After it is scored, `Apply suggestion` gives you another pass written against that feedback.
-4. Open `Full text` to read the whole translation, edit it as one text, copy it, download it, or score it.
-5. If a pass made things worse, open `Revisions` in the header and restore the version you liked; the text you leave behind is kept as a revision too.
-6. Use the header chip to switch to an earlier document or pin the ones you keep coming back to; `New translation` sits right next to it.
+- **Two views from one request** — `By paragraph` is the default; `By sentence` switches granularity. A single request returns both, so switching costs nothing.
+- **Files** — drop or pick `.txt`, `.md`, `.log`, `.html`, `.htm`, or `.docx`. Word files are unpacked in the browser (no library, and the original never leaves the machine); HTML loses scripts, styles, and the head first, so only visible prose reaches the model.
+- **Images** — paste a screenshot or pick one; it is downscaled to a 2048 px long edge, sent as JPEG, transcribed, and translated.
+
+### Review and refine
+
+- **Every segment is editable** — source and translation sit side by side and stay in step across all three views: editing a sentence re-joins its paragraph, editing a paragraph splits back over its sentences, and text is never cut mid-sentence.
+- **Full text** — `Translation` (editable), `Source`, or `Compare` (side by side, stacked on narrow screens). Edits are split on blank lines and written back onto the matching segments; copying and document-level scoring live here.
+- **Retranslate** — `AI retranslate` redoes one segment; `Retranslate with prompt` adds an instruction such as "more colloquial" or "keep the legal terms".
+- **Score on demand** — scores stay hidden on every load. Score one segment, the current view, or the whole document, then reveal them from the toolbar. Editing a translation clears the score it invalidated.
+- **Turn feedback into a rewrite** — `Apply suggestion` under a score sends that score and its comment back as the instruction for a fresh pass; `Apply all` does the same for every scored segment in the view, three at a time. While scores are hidden, no suggestion button is shown.
+
+### Keep track
+
+- **On-device history** — up to 200 documents with title, time, language pair, and segment counts. Search matches source or translation and quotes the hit in context; pin an entry to keep it on top, delete in two clicks.
+- **Revisions** — up to 20 labelled snapshots per document: the machine baseline, one before every AI pass, one before each rollback. The drawer says how many segments differ from the current text, and `Restore` puts one back — the text it replaces is snapshotted too, so a rollback can itself be undone.
+
+![The history drawer: search, pinned entries, and the document counts](docs/screenshots/history.png)
+
+### Integrate
+
+- **Model switching** — the header chip becomes a provider-grouped picker as soon as the Host advertises more than one model. `Follow default` keeps tracking the profile; any other entry pins that route for translation, retranslation, scoring, and OCR, and the choice is remembered on this device. A model that has since disappeared falls back to the default with a notice instead of failing every request. The [appendix](#appendix-adding-bilibilis-index-translate-models-as-a-route) shows how to register an outside endpoint.
+- **Agent tool** — the same engine is exposed as `translation_assistant` (`action: translate | retranslate | score | score_document`), so the assistant can translate or review text in chat.
+
+## Use cases
+
+### One model drafts, another one reviews
+
+Quality comes from separating the two jobs: draft cheap and fast, then judge and rewrite with the strongest model you can reach. The pick applies to translation, retranslation, scoring, and OCR, so the two halves of the job can even come from different providers.
+
+1. Switch the header to a fast translation model — `Index-Translate-9B`, or `Index-Translate-2B` when there is a lot of text — and press `Translate`, or drop the file in.
+2. Switch to the strongest model you have: `deepseek-reasoner`, `GPT-5`, or `Index-Translate-35B-A3B`.
+3. Press `Show scores`, then `Score all`. Each segment comes back with a 0–100 score and one sentence of feedback.
+4. Press `Apply all`, or `Apply suggestion` on a single segment. The rewrite is sent together with the score and its comment as the instruction, so the strong model fixes exactly what it criticised.
+5. Open `Revisions` to compare the passes. Every AI rewrite left a snapshot, and restoring one is undoable in turn.
+
+Scores are cached with the text: a rewrite drops the stale score, and editing a translation clears the score it invalidated, so step 3 only has to be repeated when the text actually changed.
+
+![The revisions drawer: labelled passes, how far each one is from the current text](docs/screenshots/revisions.png)
+
+### A whole document, end to end
+
+Drop a `.docx`, `.md`, or `.html` file and it is translated in one request. The file name stays on the document, and `Download translation` writes the result back in the same shape: `.md` for Markdown, an HTML document for HTML, `.txt` for everything else. Blank-line structure survives, so the output opens the way the input did.
+
+![Full text in compare mode, showing the imported file name and the download action](docs/screenshots/full-text.png)
 
 ## How it works
 
@@ -114,6 +142,7 @@ Notes for maintainers:
 - A fresh boot opens the most recently used document, not the first pinned one. Loading an entry never bumps its timestamp; editing does.
 - History pruning drops the oldest unpinned entries first, so pinned documents survive the count and character budgets.
 - Revision snapshots record the document as it stood *before* a rewrite and are taken only when that text differs from the newest snapshot, so a batch pass adds one row rather than one per segment. Rollback snapshots the outgoing text first, which is what makes a rollback reversible.
+- The screenshots in `docs/screenshots/` are the real page rendered against mocked Host data at 1280 px CSS width (2x, downscaled to 1600 px). Retake them the same way when a layout change makes them lie.
 - When changing the page's CSS, remember it lives inside a template string: a backtick inside a CSS comment truncates the literal. Counting backticks (expected: 0) and comparing `{` / `}` totals catches it.
 
 ## Troubleshooting

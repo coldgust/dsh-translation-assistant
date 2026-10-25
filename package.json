@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-translation-assistant",
-  "version": "1.10.0",
+  "version": "1.10.2",
   "private": true,
   "type": "module",
   "description": "Auxiliary translation workspace with sentence/paragraph comparison, .txt/.md/.html/.docx file import with downloadable results, a switchable model route discovered from the Host LLM registry, a searchable side-drawer translation history with pinning and keyword-context highlighting, per-document revision snapshots with one-click rollback, editable output, a full-text view with translation/source/compare modes and editable full translation, AI retranslation, custom prompts, one-click optimisation from AI feedback, image OCR translation, full-text copy and scoring, and optional AI scores.",
