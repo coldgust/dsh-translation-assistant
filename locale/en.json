@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Translation Assistant",
-    "description": "Translate text, files, and screenshots in DeepSeek Harness, side by side: proofread any segment with AI retranslation and scoring, run a whole folder through the disk-backed workspace, switch models per request, and keep every draft in on-device history with revisions."
+    "description": "Translate text, files, screenshots, and whole folders; proofread side by side as AI retranslates, scores, and rewrites from your notes. AI at every step."
   }
 }

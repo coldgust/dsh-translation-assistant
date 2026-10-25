@@ -1,20 +1,27 @@
 {
   "name": "dsh-translation-assistant",
-  "version": "1.17.3",
-  "description": "Translate text, files, and screenshots in DeepSeek Harness, side by side: proofread any segment with AI retranslation and scoring, run a whole folder through the disk-backed workspace, switch models per request, and keep every draft in on-device history with revisions.",
+  "version": "1.17.4",
+  "description": "Translate text, files, screenshots, and whole folders; proofread side by side as AI retranslates, scores, and rewrites from your notes. AI at every step.",
   "license": "Apache-2.0",
   "author": "coldgust",
   "type": "module",
   "keywords": [
-    "dsh",
-    "dsh-plugin",
+    "deepseek",
     "deepseek-harness",
+    "dsh-plugin",
     "translation",
     "translator",
-    "proofreading",
+    "ai-translation",
+    "machine-translation",
     "document-translation",
+    "file-translation",
+    "proofreading",
+    "translation-review",
+    "image-translation",
     "ocr",
-    "i18n"
+    "i18n",
+    "localization",
+    "llm"
   ],
   "repository": {
     "type": "git",

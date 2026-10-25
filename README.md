@@ -1,324 +1,101 @@
 # Translation Assistant
 
-A DeepSeek Harness plugin: paste text, drop a file, or paste a screenshot to translate; proofread the result side by side with the source; let a second model score it and rewrite what it criticises; and process a whole folder of documents from the workspace drawer. Everything stays on this device, and the model can be switched per request.
+A DeepSeek Harness plugin that turns translators into reviewers: 99% of the work is AI translation — text, files, and screenshots are translated directly, and a whole folder can be batch-translated and written back to disk; the remaining 1% is human review — proofread in the side-by-side view, revise individual word choices, and AI applies every score and comment you leave. Everything stays on this device, and the model can be switched per request.
 
 [中文](README.zh.md)
 
 **Highlights**
 
-- **Translate** — paragraphs or sentences, three modes (coherence, alignment, or speed first), files and screenshots as input, and a `Stop` button beside every running pass.
-- **Proofread** — every segment is editable; AI retranslation, on-demand scoring, and bulk rewrites turn feedback into a better draft, and every pass leaves a revision you can roll back to.
-- **Workspace** — open a folder in the side drawer, click any file to translate or proofread it, and save translations back to disk (subfolder, suffix, or overwrite) — one file or the whole tree.
-- **Local and model-agnostic** — history and edits never leave the browser; bring your own models and switch routes per request.
+- **99% AI translation** — text, files, and screenshots are translated directly; the workspace batch-translates a whole folder and writes the results back to disk.
+- **1% human review** — proofread the side-by-side view and revise only the segments that need it; AI retranslation, scoring, and rewrites all follow your instructions.
+- **A two-model review loop** — one model produces the draft, another scores it, and every score becomes a rewrite instruction; each pass leaves a revision you can roll back to.
+- **Not just a page, an Agent tool** — the same engine answers `translation_assistant` calls (`translate | retranslate | score | score_document`) inside chat.
+- **Local first** — history and edits never leave the browser; bring your own models.
 
 ![The comparison workspace: source and translation side by side, scores visible](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/workspace.png)
 
 ## Install
 
-It targets DeepSeek Harness 0.2.x (the desktop app or `dsh web`, verified on 0.2.1). The plugin is published to npm as `dsh-translation-assistant`; pick whichever of the four fits. It ships no model of its own, so select a default model under **Settings → Models** before you start.
+One line from a terminal:
 
-### Method 1: from npm (recommended)
-
-1. Open Harness, pick **Plugins** in the sidebar, and press **Add plugin**.
-2. Enter `dsh-translation-assistant` in **Package name or address**, press **Install**, then **Enable now**.
-3. A **Translation Assistant** entry appears in the sidebar.
-
-### Method 2: a local directory (for hacking on it)
-
-Best if you intend to keep working on the code: edits to `client.js` are swapped into the open page by the artifact watcher, and Host changes apply after a restart.
-
-1. Put the checkout somewhere you will not move it:
-
-   ```bash
-   git clone https://github.com/coldgust/dsh-translation-assistant.git ~/code/dsh-translation
-   ```
-
-2. Open Harness and pick **Plugins** in the sidebar.
-3. Press **Add plugin** and enter the **absolute path of the repository root** in **Package name or address** — the directory that holds `package.json`, for example `/Users/you/code/dsh-translation`.
-4. Press **Install**, wait for pnpm to finish, then press **Enable now**.
-5. A **Translation Assistant** entry appears in the sidebar.
-
-This records a `link:` dependency: the profile points at that directory instead of copying it. Do not move or rename the directory afterwards — the plugin will fail to load and has to be installed again.
-
-### Method 3: a Git address
-
-For when you do not want a local copy. Enter `https://github.com/coldgust/dsh-translation-assistant.git` where method 2 asks for the path and keep the rest. The code lands in the profile's `node_modules`, so edits never reach your repository and upgrading means uninstalling and reinstalling.
-
-### Registering it by hand
-
-If you prefer files or want to script the setup, edit the profile's `package.json` (`~/.dsh/profiles/desktop/package.json` on the desktop app). Only the two places below concern this plugin; keep the profile's existing bundles and dependencies. Using the published package:
-
-```json
-{
-  "dsh": {
-    "profile": {
-      "bundles": ["dsh-translation-assistant"]
-    }
-  },
-  "dependencies": {
-    "dsh-translation-assistant": "^1.17.2"
-  }
-}
+```bash
+dsh plugin --profile web add dsh-translation-assistant
 ```
 
-Use `"link:/Users/you/code/dsh-translation"` instead to point at a local checkout.
+Or from the GUI: **Plugins → Add plugin**, enter `dsh-translation-assistant`, press **Install**, then **Enable now**.
 
-Then run `pnpm install` in that directory and restart Harness. Keep the profile's existing entries in the `bundles` array and append this one at the end. The profile's `cordis.patch.yml` stays untouched: the plugin row comes from the patch this package ships (`dsh.bundle.patch` in `package.json` → `cordis.patch.yml`).
-
-### After installing
-
-- **Plugins → Installed plugins** lists **Translation Assistant**, switched on, and its detail page shows the single `translation-assistant` row it contributes.
-- If the header says "Translation service not ready", pick a default model under **Settings → Models** and reload the page.
-- To use an outside model — Bilibili's Index-Translate in the appendix below, for instance — register the route first; the header picker then offers it.
-
-### Upgrading and uninstalling
-
-| Installed as | Upgrade | Uninstall |
-| --- | --- | --- |
-| npm package | Uninstall it first, then install again with method 1 | **Uninstall** on the bundle's page |
-| Local directory | `git pull`, then reload; Host changes need a restart | Same as above |
-| Git address | Uninstall, then install again with method 3 | Same as above |
-| By hand | Change the version and `pnpm install`; for a link, `git pull` and restart | Delete the `bundles` entry and the dependency, then `pnpm install` |
+Local checkout, Git address, manual registry, and upgrading or uninstalling: [docs/install.md](docs/install.md).
 
 ## What you get
 
 ### Translate
 
-- **Two granularities, one pass** — `By paragraph` is the default; `By sentence` switches. Both come back in the same pass. Speed-first mode runs chunks concurrently and shows a `Translating n/m` counter, counted in paragraphs.
-- **Three translation modes (coherence first by default)** — the mode dropdown on the new-translation form and in the full-text card picks one of three; the help icon next to it spells out the differences on hover:
-  - **Coherence first** — the full text goes to the model in one request for the most coherent wording. The reply is split back on blank lines; a mismatch falls back to batching.
-  - **Alignment first** — the paragraphs go out as one JSON array and the model answers with an equally long array, so paragraph alignment is the strongest.
-  - **Speed first** — chunks run three at a time (16 sentences or 6 paragraphs each), fastest on long texts; each chunk is translated on its own, so wording is less coherent across paragraphs.
-  - When a reply does not line up, the Host predates the protocol, or the text is too long, the pass falls back to batching without an error.
+- `By paragraph` or `By sentence`, both returned in one pass; speed-first mode runs chunks concurrently and shows a `Translating n/m` counter.
+- Three translation modes, picked on the new-translation form and in the full-text card. When a response does not match the chosen protocol, the pass falls back to batching without raising an error.
 
   | Mode | Trait | Best for |
   | --- | --- | --- |
-  | Coherence first | One request for the full text, the fullest context | Essays, reports — anything read as prose; the default |
+  | Coherence first | One request for the full text, the fullest context | Essays, reports — the default |
   | Alignment first | JSON-array protocol, the strongest paragraph alignment | Glossaries, subtitles, strict side-by-side layouts |
-  | Speed first | Chunked three-way concurrency, fastest on long texts | Time-boxed bulk jobs; when cross-paragraph flow matters less |
+  | Speed first | Chunked three-way concurrency, fastest on long texts | Time-boxed bulk jobs |
 
-- **Files** — drop or pick `.txt`, `.md`, `.log`, `.html`, `.htm`, or `.docx`. Word files are unpacked in the browser (no library, and the original never leaves the machine); HTML loses scripts, styles, and the head first, so only visible prose reaches the model.
-- **Images** — paste a screenshot or pick one; it is downscaled to a 2048 px long edge, sent as JPEG, transcribed, and translated.
+- **Files** — drop or pick `.txt`, `.md`, `.log`, `.html`, `.htm`, `.docx` (Word files are unpacked in the browser; the original never leaves the machine).
+- **Images** — paste or pick a screenshot; it is downscaled, transcribed, and translated.
 
 ### Workspace
 
-- **Open a folder** — the header `Workspace` button opens a side drawer that loads a folder by path (pasted in, or picked with the native folder dialog of the desktop shell; plain browsers fall back to a directory input). The Host lists the translatable files inside (`.txt`, `.md`, `.log`, `.html`, `.htm`, `.xhtml`, plus read-only `.docx`) and confines every read and write to that root. The drawer never covers what you are proofreading.
-- **Pick any file, translate, proofread** — the tree folds and unfolds by folder; a single click on a file name gets to work: untranslated files start translating (same mode, model, and stop button), translated ones reopen for proofreading. `Save to file` writes the proofread translation back to disk.
-- **Output** — three settings: save into a `translated/` subfolder (default), save a sibling copy with a suffix, or overwrite the original. `.docx` has no writer here, so its translation is always saved as `.md`. Proofread edits can auto-save (debounced) or wait for the save button.
-- **Batch** — `Translate all` walks the pending files in order and saves each machine translation; a stop ends the run after the file in flight. Clicking those files again loads the saved translation without calling the model again.
+- The header `Workspace` button opens a side drawer: load a folder by path or with the native folder dialog. The Host lists every translatable file inside and confines all reads and writes to that root; the drawer never covers what you are proofreading.
+- The tree folds by folder; clicking a file name opens it — untranslated files start translating immediately, translated ones reopen for proofreading.
+- Output goes to a `translated/` subfolder (default), a suffixed sibling copy, or over the original; `.docx` translations always save as `.md`. Proofread edits can auto-save or wait for the save button.
+- `Translate all` walks the pending files in order and saves each result; a stop ends the run after the file in flight.
 
 ![The workspace drawer: the folder tree on the side, output settings, and batch translation](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/workspace-drawer.png)
 
 ### Review and refine
 
-- **Every segment is editable** — source and translation sit side by side; editing a sentence re-joins its paragraph, editing a paragraph splits back over its sentences.
-- **Full text** — `Translation` (editable), `Source`, or `Compare`. Edits are split on blank lines — one paragraph per line when there are none — and written back onto the matching segments; copying and document-level scoring live here.
-- **Retranslate** — `AI retranslate` redoes one segment; `Retranslate with prompt` adds an instruction such as "more colloquial". Both work in the full-text view and follow the mode: coherence and alignment send one request for the document, speed-first runs per-paragraph with progress. Each pass leaves one revision.
-- **Score on demand** — scores stay hidden on every load. Score one segment, the current view, or the whole document, then reveal them from the toolbar. Editing a translation clears its score.
-- **Turn feedback into a rewrite** — `Apply suggestion` sends the score and comment back as the instruction for a fresh pass; `Apply all` does the same for every scored segment in the view, three at a time. The buttons are hidden while scores are hidden.
-- **Stop a running pass** — the `Stop` button always sits beside the progress it belongs to: next to the translate button on the landing form, next to `AI retranslate` and `Apply suggestion` in the full-text view, and next to `Apply all` or a busy segment's own retranslate button in the paragraph and sentence views. In-flight requests are cancelled, further chunks are skipped, and rewrites that already landed are kept.
+- Source and translation sit side by side; every segment is editable, and edits re-join sentences and paragraphs correctly.
+- `AI retranslate` redoes one segment; `Retranslate with prompt` adds an instruction such as "more colloquial". Both follow the translation mode and leave one revision per pass.
+- Scores are on demand only: score a segment, the current view, or the whole document, then reveal them from the toolbar. `Apply suggestion` sends a score and its comment back as the instruction for a fresh pass; `Apply all` rewrites every scored segment three at a time.
+- A `Stop` button sits beside every running pass; in-flight requests are cancelled, and rewrites that already landed are kept.
 
 ### Keep track
 
-- **On-device history** — up to 200 documents with title, time, language pair, and segment counts. Search matches source or translation and quotes the hit in context; pin an entry to keep it on top, delete in two clicks.
-- **Revisions** — up to 100 snapshots per document: the machine baseline, one before every AI pass, one before each rollback. The drawer shows how many segments differ from the current text; restoring one is undoable, because the outgoing text is snapshotted first.
+- On-device history — up to 200 documents with search, pinning, and two-click deletion.
+- Revisions — up to 100 snapshots per document; the drawer shows how far each one differs from the current text, and restoring is undoable.
 
 ![The history drawer: search, pinned entries, and the document counts](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/history.png)
 
 ### Integrate
 
-- **Model switching** — with more than one advertised model, the header picker groups routes by provider. `Follow default` tracks the profile; any other entry pins that route for translation, retranslation, scoring, and OCR, remembered on this device. A route that has disappeared falls back to the default with a notice. The [appendix](#appendix-adding-bilibilis-index-translate-models-as-a-route) registers an outside endpoint.
-- **Agent tool** — the same engine is exposed as `translation_assistant` (`action: translate | retranslate | score | score_document`), so the assistant can translate or review text in chat.
+- The header picker groups models by provider; `Follow default` tracks the profile, any other entry pins the route for translation, retranslation, scoring, and OCR. Outside providers register through Harness settings — a worked example in [docs/bilibili-index-translate.md](docs/bilibili-index-translate.md).
+- The same engine is exposed as a `translation_assistant` Agent tool (`translate | retranslate | score | score_document`), so the assistant can translate or review text in chat.
 
 ## Use cases
 
-### One model drafts, another one reviews
+**One model drafts, another reviews.** Translate with a fast model, then switch to your strongest model and run `Score all`, then `Apply all`. Each rewrite carries the score and its comment as the instruction, so the strong model fixes exactly what it criticised — and every pass leaves a revision, so comparing and rolling back is one click.
 
-Draft cheap and fast, then judge and rewrite with the strongest model you can reach. The pick applies to translation, retranslation, scoring, and OCR, so the two halves can come from different providers.
-
-1. Switch the header to a fast translation model — `Index-Translate-9B`, or `Index-Translate-2B` when there is a lot of text — and press `Translate`, or drop the file in.
-2. Switch to the strongest model you have: `deepseek-reasoner`, `GPT-5`, or `Index-Translate-35B-A3B`.
-3. Press `Show scores`, then `Score all`. Each segment comes back with a 0–100 score and one sentence of feedback.
-4. Press `Apply all`, or `Apply suggestion` on a single segment. The rewrite is sent together with the score and its comment as the instruction, so the strong model fixes exactly what it criticised.
-5. Open `Revisions` to compare the passes. Every AI rewrite left a snapshot, and restoring one is undoable in turn.
-
-Rewrites and edits drop the scores they invalidate, so step 3 is only needed when the text changed.
-
-![The revisions drawer: labelled passes, how far each one is from the current text](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/revisions.png)
-
-### A whole document, end to end
-
-Drop a `.docx`, `.md`, or `.html` file and it is translated in one request. The file name stays on the document, and `Download translation` writes the result back in the same shape (`.md` / HTML / `.txt`); blank-line paragraph structure survives.
+**A whole document, end to end.** Drop a `.docx`, `.md`, or `.html` file: it is translated in one request, and `Download translation` writes the result back in the same shape with the paragraph structure intact.
 
 ![Full text in compare mode, showing the imported file name and the download action](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/full-text.png)
 
 ## How it works
 
-| File | Role |
-| --- | --- |
-| `host/index.js` | Host half: registers the `/dsh-translation/api` JSON route and the `translation_assistant` Agent tool, validates requests, resolves the model route. |
-| `host/engine.js` | Prompt construction, streaming completion wrapper, retries, batched translation with per-segment fallback, retranslation, segment/document scoring, image OCR. No Harness imports, so it is unit-testable with a fake LLM stream. |
-| `client.js` | Browser half: the `main` page, the sidebar panel icon, all interaction state and rendering. |
-| `package.json` | Bundle declaration: `dsh.bundle.patch` points at the shipped `cordis.patch.yml`, `dsh.client` names the browser entry and the sidebar package it injects into. |
-| `cordis.patch.yml` | Inserts the Host plugin row. |
-| `locale/en.json`, `locale/zh.json` | Plugin Manager title and description, in English and Chinese. |
+`host/index.js` registers a same-origin `/dsh-translation/api` route and the Agent tool, `host/engine.js` does the model work (no Harness imports), and `client.js` is the page. POSTs are origin-checked and capped at 24 MiB, and every request can pin a `route: { provider, model }`.
 
-The page talks to the Host through same-origin calls:
+Endpoints, configuration fields, on-device storage, the full limits, and maintainer notes: [docs/reference.md](docs/reference.md).
 
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /dsh-translation/api/health` | Service state, the resolved model label, the profile default, the switchable model list (grouped by provider), and per-provider listing failures. |
-| `POST …/translate` | Translate a `sentences` / `paragraphs` array in one request; or a whole `document` in a single call — the raw text, answered with a document that keeps the paragraph structure, or a paragraph array answered with an aligned array. |
-| `POST …/retranslate` | Redo one segment or the whole document (`kind: document`), optionally with `extraPrompt`. |
-| `POST …/score` | Score one segment (0–100 plus a one-sentence comment). |
-| `POST …/score-document` | Score a whole source/translation pair. |
-| `POST …/ocr` | Transcribe an image (`image` as base64 + media type). |
-
-POSTs are rejected when the `Origin` header names a different origin, and the request body is capped at 24 MiB. Every POST accepts an optional `route: { provider, model }`; omitting it follows the configured or profile-default route. A route that is not in the advertised catalog is rejected with HTTP 400 before any model call, unless the catalog itself is empty (discovery failed), in which case the model service has the final say.
-
-## Configuration
-
-All fields are optional and live in the plugin row (`cordis.patch.yml` or Plugin Manager):
-
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `provider`, `model` | current default selection | Exact model route for all calls. |
-| `reasoningEffort` | unset | Optional reasoning effort passed to the route. |
-| `models` | unset (discovery) | Extra routes for the header picker, for example `[{ provider: deepseek-account, model: deepseek-pro, label: Pro }]`. Merged with what the Host's LLM registry advertises; the routes in use are always listed. |
-| `targetLanguage` | Chinese | Default target language. |
-| `sourceLanguage` | unset (auto-detect) | Default source language; the page can override it. |
-| `maxTokens` | `8192` | Output limit for translation calls. |
-| `retranslateMaxTokens` | `4096` | Output limit for per-segment retranslation; whole-document retranslation (coherence/alignment modes) uses the general default. |
-| `scoreMaxTokens` | `4096` | Output limit for scoring. |
-| `ocrMaxTokens` | `4096` | Output limit for image transcription. |
-| `maxRetries` | `1` | Retries for transient provider failures. |
-| `scoreRetries` | `1` | Retries when a scoring reply cannot be parsed. |
-| `sentenceChunk`, `paragraphChunk` | `16`, `6` | Segments per translation batch. |
-| `concurrency` | `3` | Batches in flight at once. |
-| `tool` | `true` | Set `false` to hide the Agent tool. |
-
-## Data kept on this device
-
-| Key | Content |
-| --- | --- |
-| `dsh-translation-assistant:history:v1` | Up to 200 entries (~2 M characters), pinned first and then most recently used. Each entry carries its own revision snapshots (up to 100, 200,000 characters per document). |
-| `dsh-translation-assistant:session:v1` | The id of the document that was open last. |
-| `dsh-translation-assistant:prefs:v2` | Source/target language, comparison view, full-text display mode, the translation mode, and the picked model route (or `null` to follow the default). |
-| `dsh-translation-assistant:document:v1` | Legacy single-document key from 1.1.x: adopted into history on first boot, then cleared. |
+## Privacy
 
 History, edits, and preferences never leave the browser; only the text being translated, retranslated, scored, or read from an image is sent to the model route. Clearing site data for the Harness origin erases the history — there is no server-side copy.
 
-## Limits
-
-- A translation request accepts up to 400 segments, 20,000 characters per segment, and 120,000 characters in total. Whole-document requests cap at 60,000 characters; anything longer switches to batching automatically.
-- Revisions keep the latest 100 snapshots per document within 200,000 characters; older snapshots are dropped first. They count against the history budget, so a heavily iterated document may evict older documents.
-- Document scoring accepts up to 60,000 characters on each side (120,000 combined).
-- Images: PNG, JPEG, WebP, or GIF, up to 12 MiB each and 24 MiB per request.
-- Imported files: up to 8 MiB each, and the extracted text still has to fit the 120,000-character translation budget. `.docx` unpacking needs the browser's `DecompressionStream` (Chrome 80+, Firefox 113+, Safari 16.4+); elsewhere the page asks for `.txt`, `.md`, or `.html` instead.
-- HTML import translates visible text only: scripts, styles, the head, and attributes are dropped. The downloaded HTML keeps one `<p>` per translated paragraph and does not restore inline markup such as links or emphasis.
-- Scoring asks for the stable `SCORE:` / `COMMENT:` pair, falls back to JSON, and retries once when the model breaks that shape. A score is a model judgement, not a certified metric.
-
 ## Development and verification
 
-This directory is the installed bundle (the profile links it), so `client.js` is hot-swapped into the open page; Host changes need a Harness restart.
-
 ```bash
-# 121 unit/integration tests: engine (translation/retranslation/scoring/OCR),
-# the HTTP handler, model-catalog discovery and route overrides, the workspace
-# file endpoints, and the page rendered through a minimal React harness (no
-# browser needed).
 node --test 'test/*.test.mjs'
 ```
 
-Notes for maintainers:
-
-- The page pre-checks the Host limits (400 segments / about 120,000 characters) and explains an oversized document before a request is sent.
-- Model discovery uses the documented `@deepseek-ai/dsh-llm` registry: `listProviders()` names the registered routes, then `listModels(providerId)` asks each adapter what it serves. Calling `listModels` with no argument throws `NO_ADAPTER`, so a generic probe finds nothing on a current Host. One provider whose listing fails is reported in `modelFailures` and does not hide the others. Results are cached for 60 seconds and dropped on `llm/adapters-updated`; discovery only runs for requests that carry a `route`.
-- The picker groups candidates by provider once more than one is visible; the `default` entry always names the profile default, regardless of the route in use.
-- `.docx` reading is a small ZIP walker (central directory → local header → `DecompressionStream('deflate-raw')`) plus a tag stripper for `word/document.xml`; headers, footers, and comments are ignored. HTML reading is regex-based so it runs in the Node test harness.
-- Scores are hidden on every mount by design; only an explicit score request reveals them.
-- A fresh boot opens the most recently used document. Loading an entry never bumps its timestamp; editing does.
-- History pruning drops the oldest unpinned entries first, so pinned documents survive the budgets.
-- Revision snapshots record the document as it stood *before* a rewrite and are skipped when that text equals the newest snapshot, so a batch pass adds one row.
-- The screenshots in `docs/screenshots/` are the real page rendered against mocked Host data at 1280 px CSS width (2x, downscaled to 1600 px). Retake them after layout changes.
-- The page's CSS lives inside a template string: a backtick inside a CSS comment truncates the literal. Count backticks (expected: 0) and compare `{` / `}` totals.
+The repository doubles as the installed bundle: `client.js` hot-swaps into the open page, Host changes need a Harness restart. The screenshots in `docs/screenshots/` are real renders against mocked data — retake them after layout changes.
 
 ## Troubleshooting
 
-| Symptom | Cause and fix |
-| --- | --- |
-| Installation says the package is not a bundle | The path points at a subdirectory. Enter the repository root — the directory with `package.json` and its `dsh.bundle.patch`. |
-| The bundle reports an error after the folder moved | A local install is a `link:` dependency, so moving or renaming the directory breaks it. Put it back, or uninstall and install again from the new path. |
-| No sidebar entry after installing | Restart Harness on the desktop app, or reload the page under `dsh web`. If it is still missing, check that the bundle is switched on in **Plugins**. |
-| Header shows “Translation service not ready” | No default model is selected in Settings, or the provider is unreachable. Pick a default model and reload. |
-| The header shows no model picker | Only one route was discovered, so there is nothing to switch to. The notice above the editor names the provider whose listing failed; a `models` list in the plugin config is the manual fallback. |
-| “The selected model cannot read images” (HTTP 422) | The routed model cannot read images. Choose a vision-capable model. |
-| Importing a `.docx` says the browser cannot unpack it | `DecompressionStream` is unavailable in that browser. Save the file as `.txt`, `.md`, or `.html` and import that. |
-| The downloaded HTML has no styling or links | Expected: the page translates text, so the export keeps paragraphs only. Keep the original file if you need the markup. |
-| `New translation` seems to have deleted the document | It does not: the document stays in history and the page opens a blank form. Open the header chip to switch back. |
-| A rollback lost the newer wording | It does not: the text you left is stored as a `Before rollback` revision. Open `Revisions` again and restore it. |
-| Edits disappeared after clearing browser data | History and edits live in `localStorage` only; there is no cloud copy. |
-
-## Appendix: adding Bilibili's Index-Translate models as a route
-
-### The model
-
-[Index-Translate](https://index-translate.bilibili.com/?p=/site/translate.html&lang=zh) is Bilibili's open machine-translation model family; that page is its online demo. It runs on vLLM and speaks standard OpenAI Chat Completions, so it registers as an ordinary custom provider and then shows up in this plugin's header picker.
-
-- `Index-Translate-35B-A3B` — the flagship: a mixture-of-experts model (35B total parameters, 3B active) that translates between many languages and can also read text straight out of an image, which in this plugin means translation, retranslation, scoring, and OCR all work.
-- `Index-Translate-9B` / `Index-Translate-2B` — smaller, faster text-only models for high volume.
-
-The demo needs no API key and comes with no SLA, so treat it as a playground route.
-
-### Method 1: the Web UI (recommended)
-
-1. Run `dsh web` and open the interface.
-2. Go to **Settings → Models**.
-3. Click **Add a custom provider**.
-4. Fill in the form:
-
-   - **Provider ID**: `bilibili-translate` — a lowercase identifier you choose, used internally to recognise the provider
-   - **Base URL**: `https://index-translate.bilibili.com/v1`
-   - **Protocol**: `OpenAI Completions` (`openai-completions`)
-   - **API Key**: any placeholder, for example `index`
-   - **Models**: click **Fetch available models**; it should discover `Index-Translate-35B-A3B`. If that fails, add the model id by hand.
-
-5. Save, then pick the Bilibili model from the dropdown.
-
-### Method 2: edit the settings file directly
-
-For file-based or scripted setups. Edit `$DSH_HOME/settings.yaml` (on the desktop app the live file is `~/.dsh/profiles/desktop/cordis.patch.yml`) and add an entry under `providers` inside the `llm-pi-ai` section:
-
-```yaml
-llm-pi-ai:
-  providers:
-    bilibili-translate:                      # Provider ID
-      apiKeyEnv: BILIBILI_TRANSLATE_API_KEY  # names an environment variable
-      api: openai-completions
-      baseURL: https://index-translate.bilibili.com/v1
-      models:
-        - id: Index-Translate-35B-A3B
-```
-
-Note that `apiKeyEnv` is a *reference*, not a value: the Harness process has to be able to read that variable. The endpoint ignores the key, so any non-empty value works. A Harness launched from the Dock does not inherit your shell environment; if the variable cannot resolve, send the placeholder as a header instead:
-
-```yaml
-      headers:
-        Authorization: Bearer index
-```
-
-### Verify
-
-Restart Harness — providers are registered at boot. This plugin's header picker then gains a `bilibili-translate` group, and picking `Index-Translate-35B-A3B` pins it for translation, retranslation, scoring, and OCR. You can also check the endpoint directly:
-
-```bash
-curl http://127.0.0.1:<port>/dsh-translation/api/health
-```
-
-Entries under `models` with `provider: bilibili-translate` mean the route is live.
-
-### Caveats
-
-- A public demo deployment: no SLA, no published rate limit, and it may change or disappear. A playground route, not production capacity.
-- Context is 24,576 tokens on the 35B, while this plugin accepts documents up to 120,000 characters. Batches are 6 paragraphs or 16 sentences, so normal documents fit; a single paragraph of tens of thousands of characters does not. Drop `concurrency` to `2` for the demo endpoint.
-- Do not paste a real key. The endpoint ignores it, and whatever you type is stored in your local credential store.
+See [docs/troubleshooting.md](docs/troubleshooting.md).
