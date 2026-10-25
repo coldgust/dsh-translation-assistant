@@ -8,7 +8,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: '@local/dsh-translation-assistant',
+  id: 'dsh-translation-assistant',
   factory(require) {
     const React = require('react');
     const h = React.createElement;

@@ -4,7 +4,74 @@ A DeepSeek Harness plugin that turns the Web GUI into a translation workspace: p
 
 [中文](README.zh.md)
 
-![The comparison workspace: source and translation side by side, scores visible](docs/screenshots/workspace.png)
+![The comparison workspace: source and translation side by side, scores visible](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/workspace.png)
+
+## Install
+
+It targets DeepSeek Harness 0.2.x (the desktop app or `dsh web`, verified on 0.2.1). The plugin is published to npm as `dsh-translation-assistant`; pick whichever of the four fits. It ships no model of its own, so select a default model under **Settings → Models** before you start.
+
+### Method 1: from npm (recommended)
+
+1. Open Harness, pick **Plugins** in the sidebar, and press **Add plugin**.
+2. Enter `dsh-translation-assistant` in **Package name or address**, press **Install**, then **Enable now**.
+3. A **Translation Assistant** entry appears in the sidebar.
+
+### Method 2: a local directory (for hacking on it)
+
+Best if you intend to keep working on the code: edits to `client.js` are swapped into the open page by the artifact watcher, and Host changes apply after a restart.
+
+1. Put the checkout somewhere you will not move it:
+
+   ```bash
+   git clone https://github.com/coldgust/dsh-translation-assistant.git ~/code/dsh-translation
+   ```
+
+2. Open Harness and pick **Plugins** in the sidebar.
+3. Press **Add plugin** and enter the **absolute path of the repository root** in **Package name or address** — the directory that holds `package.json`, for example `/Users/you/code/dsh-translation`.
+4. Press **Install**, wait for pnpm to finish, then press **Enable now**.
+5. A **Translation Assistant** entry appears in the sidebar.
+
+This records a `link:` dependency: the profile points at that directory instead of copying it. Do not move or rename the directory afterwards — the plugin will fail to load and has to be installed again.
+
+### Method 3: a Git address
+
+For when you do not want a local copy. Enter `https://github.com/coldgust/dsh-translation-assistant.git` where method 2 asks for the path and keep the rest. The code lands in the profile's `node_modules`, so edits never reach your repository and upgrading means uninstalling and reinstalling.
+
+### Registering it by hand
+
+If you prefer files or want to script the setup, edit the profile's `package.json` (`~/.dsh/profiles/desktop/package.json` on the desktop app). Only the two places below concern this plugin; keep the profile's existing bundles and dependencies. Using the published package:
+
+```json
+{
+  "dsh": {
+    "profile": {
+      "bundles": ["dsh-translation-assistant"]
+    }
+  },
+  "dependencies": {
+    "dsh-translation-assistant": "^1.11.1"
+  }
+}
+```
+
+Use `"link:/Users/you/code/dsh-translation"` instead to point at a local checkout.
+
+Then run `pnpm install` in that directory and restart Harness. Keep the profile's existing entries in the `bundles` array and append this one at the end. The profile's `cordis.patch.yml` stays untouched: the plugin row comes from the patch this package ships (`dsh.bundle.patch` in `package.json` → `cordis.patch.yml`).
+
+### After installing
+
+- **Plugins → Installed plugins** lists **Translation Assistant**, switched on, and its detail page shows the single `translation-assistant` row it contributes.
+- If the header says "Translation service not ready", pick a default model under **Settings → Models** and reload the page.
+- To use an outside model — Bilibili's Index-Translate in the appendix below, for instance — register the route first; the header picker then offers it.
+
+### Upgrading and uninstalling
+
+| Installed as | Upgrade | Uninstall |
+| --- | --- | --- |
+| npm package | Uninstall it first, then install again with method 1 | **Uninstall** on the bundle's page |
+| Local directory | `git pull`, then reload; Host changes need a restart | Same as above |
+| Git address | Uninstall, then install again with method 3 | Same as above |
+| By hand | Change the version and `pnpm install`; for a link, `git pull` and restart | Delete the `bundles` entry and the dependency, then `pnpm install` |
 
 ## What you get
 
@@ -27,7 +94,7 @@ A DeepSeek Harness plugin that turns the Web GUI into a translation workspace: p
 - **On-device history** — up to 200 documents with title, time, language pair, and segment counts. Search matches source or translation and quotes the hit in context; pin an entry to keep it on top, delete in two clicks.
 - **Revisions** — up to 20 labelled snapshots per document: the machine baseline, one before every AI pass, one before each rollback. The drawer says how many segments differ from the current text, and `Restore` puts one back — the text it replaces is snapshotted too, so a rollback can itself be undone.
 
-![The history drawer: search, pinned entries, and the document counts](docs/screenshots/history.png)
+![The history drawer: search, pinned entries, and the document counts](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/history.png)
 
 ### Integrate
 
@@ -48,13 +115,13 @@ Quality comes from separating the two jobs: draft cheap and fast, then judge and
 
 Scores are cached with the text: a rewrite drops the stale score, and editing a translation clears the score it invalidated, so step 3 only has to be repeated when the text actually changed.
 
-![The revisions drawer: labelled passes, how far each one is from the current text](docs/screenshots/revisions.png)
+![The revisions drawer: labelled passes, how far each one is from the current text](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/revisions.png)
 
 ### A whole document, end to end
 
 Drop a `.docx`, `.md`, or `.html` file and it is translated in one request. The file name stays on the document, and `Download translation` writes the result back in the same shape: `.md` for Markdown, an HTML document for HTML, `.txt` for everything else. Blank-line structure survives, so the output opens the way the input did.
 
-![Full text in compare mode, showing the imported file name and the download action](docs/screenshots/full-text.png)
+![Full text in compare mode, showing the imported file name and the download action](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/full-text.png)
 
 ## How it works
 
@@ -63,6 +130,7 @@ Drop a `.docx`, `.md`, or `.html` file and it is translated in one request. The 
 | `host/index.js` | Host half: registers the `/dsh-translation/api` JSON route and the `translation_assistant` Agent tool, validates requests, resolves the model route. |
 | `host/engine.js` | Prompt construction, streaming completion wrapper, retries, batched translation with per-segment fallback, retranslation, segment/document scoring, image OCR. No Harness imports, so it is unit-testable with a fake LLM stream. |
 | `client.js` | Browser half: the `main` page, the sidebar panel icon, all interaction state and rendering. |
+| `package.json` | Bundle declaration: `dsh.bundle.patch` points at the shipped `cordis.patch.yml`, `dsh.client` names the browser entry and the sidebar package it injects into. |
 | `cordis.patch.yml` | Inserts the Host plugin row. |
 | `locale/en.json`, `locale/zh.json` | Plugin Manager title and description, in English and Chinese. |
 
@@ -149,6 +217,9 @@ Notes for maintainers:
 
 | Symptom | Cause and fix |
 | --- | --- |
+| Installation says the package is not a bundle | The path points at a subdirectory. Enter the repository root — the directory with `package.json` and its `dsh.bundle.patch`. |
+| The bundle reports an error after the folder moved | A local install is a `link:` dependency, so moving or renaming the directory breaks it. Put it back, or uninstall and install again from the new path. |
+| No sidebar entry after installing | Restart Harness on the desktop app, or reload the page under `dsh web`. If it is still missing, check that the bundle is switched on in **Plugins**. |
 | Header shows “Translation service not ready” | No default model is selected in Settings, or the provider is unreachable. Pick a default model and reload. |
 | The header shows no model picker | Only one route was discovered, so there is nothing to switch to. The notice above the editor names the provider whose listing failed; a `models` list in the plugin config is the manual fallback. |
 | “The selected model cannot read images” (HTTP 422) | The routed model cannot read images. Choose a vision-capable model. |
@@ -223,3 +294,9 @@ Entries under `models` with `provider: bilibili-translate` mean the route is liv
 - A public demo deployment: no SLA, no published rate limit, and it may change or disappear. A playground route, not production capacity.
 - Context is 24,576 tokens on the 35B, while this plugin accepts documents up to 120,000 characters. Batches are 6 paragraphs or 16 sentences, so normal documents fit; a single paragraph of tens of thousands of characters does not. Drop `concurrency` to `2` for the demo endpoint.
 - Do not paste a real key. The endpoint ignores it, and whatever you type is stored in your local credential store.
+
+## License
+
+Apache License 2.0. The full text is in [LICENSE](LICENSE).
+
+Copyright 2026 coldgust

@@ -175,7 +175,7 @@ globalThis.window = {
 };
 await import('../client.js');
 assert.ok(captured, 'client bundle must register a module factory');
-assert.equal(captured.id, '@local/dsh-translation-assistant');
+assert.equal(captured.id, 'dsh-translation-assistant');
 
 /**
  * Activate the client half against a fake Cordis context and render its page.

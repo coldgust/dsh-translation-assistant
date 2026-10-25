@@ -1,9 +1,31 @@
 {
-  "name": "@local/dsh-translation-assistant",
-  "version": "1.10.2",
-  "private": true,
+  "name": "dsh-translation-assistant",
+  "version": "1.11.1",
+  "description": "A DeepSeek Harness translation workspace: source and translation side by side by sentence or paragraph, .txt/.md/.html/.docx import with downloadable output, per-request model switching, AI retranslation and scoring, image transcription, and a searchable on-device history with revisions.",
+  "license": "Apache-2.0",
+  "author": "coldgust",
   "type": "module",
-  "description": "Auxiliary translation workspace with sentence/paragraph comparison, .txt/.md/.html/.docx file import with downloadable results, a switchable model route discovered from the Host LLM registry, a searchable side-drawer translation history with pinning and keyword-context highlighting, per-document revision snapshots with one-click rollback, editable output, a full-text view with translation/source/compare modes and editable full translation, AI retranslation, custom prompts, one-click optimisation from AI feedback, image OCR translation, full-text copy and scoring, and optional AI scores.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "translation",
+    "translator",
+    "proofreading",
+    "document-translation",
+    "ocr",
+    "i18n"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coldgust/dsh-translation-assistant.git"
+  },
+  "homepage": "https://github.com/coldgust/dsh-translation-assistant",
+  "bugs": "https://github.com/coldgust/dsh-translation-assistant/issues",
+  "scripts": {
+    "test": "node --test 'test/*.test.mjs'",
+    "check:pack": "npm pack --dry-run"
+  },
   "exports": {
     ".": "./host/index.js",
     "./client": "./client.js",
@@ -18,7 +40,8 @@
     "locale/*.json",
     "icon.svg",
     "README.md",
-    "README.zh.md"
+    "README.zh.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
@@ -31,5 +54,6 @@
         "@deepseek-ai/dsh-client-ui-sidebar"
       ]
     }
-  }
+  },
+  "packageManager": "pnpm@10.12.1+sha512.f0dda8580f0ee9481c5c79a1d927b9164f2c478e90992ad268bbb2465a736984391d6333d2c327913578b2804af33474ca554ba29c04a8b13060a717675ae3ac"
 }

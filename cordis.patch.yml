@@ -2,7 +2,7 @@
 # the `translation_assistant` Agent tool, and ships the browser page.
 - insert:
     - id: translation-assistant
-      name: '@local/dsh-translation-assistant'
+      name: 'dsh-translation-assistant'
       config:
         # Every field is optional; with no provider/model the plugin uses the
         # profile's current default model selection at call time.

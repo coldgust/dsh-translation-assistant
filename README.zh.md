@@ -4,7 +4,74 @@
 
 [English](README.md)
 
-![逐段对照工作台：原文与译文左右并列，评分可见](docs/screenshots/workspace.png)
+![逐段对照工作台：原文与译文左右并列，评分可见](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/workspace.png)
+
+## 安装
+
+面向 DeepSeek Harness 0.2.x（桌面版或 `dsh web`，在 0.2.1 上验证）。插件已发布到 npm，包名是 `dsh-translation-assistant`；四种装法选一种，装完按提示重启或刷新页面。插件自身不带模型，用之前要在「设置 → 模型」里选好默认模型。
+
+### 方法一：从 npm 安装（推荐）
+
+1. 打开 Harness，左侧栏进「插件」，点「添加插件」。
+2. 在「包名或地址」里填 `dsh-translation-assistant`，点「安装」，装完点「立即启用」。
+3. 左侧栏出现「翻译助手」入口，就装好了。
+
+### 方法二：本地目录（改代码时用）
+
+适合自己维护：改 `client.js` 会被产物监听器热替换，改宿主侧重启即可生效。
+
+1. 把仓库放在一个不会随手移动的位置：
+
+   ```bash
+   git clone https://github.com/coldgust/dsh-translation-assistant.git ~/code/dsh-translation
+   ```
+
+2. 打开 Harness，左侧栏进「插件」。
+3. 点「添加插件」，在「包名或地址」里填入**仓库根目录的绝对路径**——含 `package.json` 的那一层，例如 `/Users/you/code/dsh-translation`。
+4. 点「安装」，等 pnpm 跑完，再点「立即启用」。
+5. 左侧栏出现「翻译助手」入口，就装好了。
+
+这样登记的是一个 `link:` 依赖：档案指向这个目录本身，不复制副本。所以装完之后别再移动或改名该目录，否则插件会加载失败，得重新安装。
+
+### 方法三：Git 地址
+
+不想在本地留副本时用。按方法二填 path 的那一步改成填仓库地址 `https://github.com/coldgust/dsh-translation-assistant.git`，其余相同。代价是代码被装进档案的 `node_modules`，改动不回流到仓库，升级只能卸载重装。
+
+### 手工登记
+
+喜欢文件配置或要脚本化时，改档案的 `package.json`（桌面版是 `~/.dsh/profiles/desktop/package.json`）。下面只列与本插件有关的两处，档案原有的 bundle 与依赖照旧保留。用 npm 上的版本：
+
+```json
+{
+  "dsh": {
+    "profile": {
+      "bundles": ["dsh-translation-assistant"]
+    }
+  },
+  "dependencies": {
+    "dsh-translation-assistant": "^1.11.1"
+  }
+}
+```
+
+想指向本机目录的话，把依赖改成 `"link:/Users/you/code/dsh-translation"`。
+
+然后在同一目录跑 `pnpm install` 并重启 Harness。`bundles` 数组里保留档案原有的条目，只在末尾追加这一行。档案的 `cordis.patch.yml` 不用动：插件行由本包自带的 patch 插入（`package.json` 的 `dsh.bundle.patch` → `cordis.patch.yml`）。
+
+### 装好之后
+
+- 「插件 → 已安装插件」里能看到「翻译助手」，开关打开，点进去能看到它自带的一行 `translation-assistant`。
+- 页头若显示「翻译服务未就绪」，去「设置 → 模型」选一个默认模型，再刷新页面。
+- 想接外部模型（例如文末附录里的 B 站 Index-Translate），接好后头部下拉框里能直接选。
+
+### 升级与卸载
+
+| 方式 | 升级 | 卸载 |
+| --- | --- | --- |
+| npm 包 | 先在插件页卸载，再按方法一重装新版 | 插件页对该 bundle 点「卸载」 |
+| 本地目录 | `git pull` 后刷新页面；宿主侧改动需要重启 | 同上 |
+| Git 地址 | 先卸载再按方法三重装 | 同上 |
+| 手工登记 | 换版本号后 `pnpm install`；本地目录则 `git pull` 后重启 | 删掉 `bundles` 与 `dependencies` 两处，再 `pnpm install` |
 
 ## 能做什么
 
@@ -27,7 +94,7 @@
 - **本机历史** —— 最多 200 篇，带标题、时间、语言对和片段数；搜索会在原文和译文里匹配并给出上下文。置顶不影响最近使用时间，删除需要点两下。
 - **修改记录** —— 每篇最多 20 个带标签的快照：机器初译、每次 AI 改动之前、每次回退之前。抽屉里标出与当前文本相差几段，「回退到这里」把快照放回去，被替换的文本也会先存一份，所以回退本身也能撤销。
 
-![翻译历史抽屉：搜索、置顶条目与片段数](docs/screenshots/history.png)
+![翻译历史抽屉：搜索、置顶条目与片段数](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/history.png)
 
 ### 集成
 
@@ -48,13 +115,13 @@
 
 评分会跟着文本走：重写会丢掉过期评分，手动改译文会清掉被它作废的评分，所以只有文本真的变了之后才需要重跑第 3 步。
 
-![修改记录抽屉：带标签的历次版本，以及与当前文本的差异段数](docs/screenshots/revisions.png)
+![修改记录抽屉：带标签的历次版本，以及与当前文本的差异段数](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/revisions.png)
 
 ### 一整份文档，从头到尾
 
 把 `.docx`、`.md` 或 `.html` 文件拖进来，一次请求整份翻完。文件名会留在文档上，「下载译文」按原格式写回：Markdown 还是 `.md`，HTML 还是 HTML 文档，其余是 `.txt`。空行分段结构会保留，输出的样子和输入时一致。
 
-![全文的对比模式：显示导入的文件名和下载译文按钮](docs/screenshots/full-text.png)
+![全文的对比模式：显示导入的文件名和下载译文按钮](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/full-text.png)
 
 ## 实现结构
 
@@ -63,6 +130,7 @@
 | `host/index.js` | 宿主侧：注册 `/dsh-translation/api` JSON 路由和 `translation_assistant` 工具，校验请求，解析模型路由。 |
 | `host/engine.js` | 提示词构造、流式调用封装、重试、分批翻译（失败时逐段回退）、重译、片段与全文评分、图片 OCR。不依赖 Harness，可用假 LLM 流做单元测试。 |
 | `client.js` | 浏览器侧：`main` 页面、侧边栏入口图标、全部交互状态与渲染。 |
+| `package.json` | bundle 声明：`dsh.bundle.patch` 指向自带的 `cordis.patch.yml`，`dsh.client` 声明浏览器侧入口与依赖的侧边栏包。 |
 | `cordis.patch.yml` | 插入宿主插件行。 |
 | `locale/en.json`、`locale/zh.json` | 插件管理器的标题与描述。 |
 
@@ -148,6 +216,9 @@ node --test 'test/*.test.mjs'
 
 | 现象 | 原因与处理 |
 | --- | --- |
+| 安装时提示「不是插件包」 | 路径选到了子目录。要填含 `package.json`、且带 `dsh.bundle.patch` 的那一层（仓库根目录）。 |
+| 移动目录后插件列表里报错 | 本地安装登记的是 `link:` 依赖，目录移动或改名后就断了。把目录放回原处，或卸载后按新路径重装。 |
+| 装好了但侧边栏没有入口 | 桌面版重启 Harness；`dsh web` 的话刷新页面。仍未出现时看「插件」页里该 bundle 的开关是否打开。 |
 | 头部显示 `翻译服务未就绪` | 设置里没有选默认模型，或供应商暂时不可达。选好默认模型后刷新页面。 |
 | 头部没有模型下拉框 | 只发现了一个可用路由，没有可切换的对象。编辑器上方会提示是哪个 provider 列举失败；也可以在插件配置里补 `models` 手工兜底。 |
 | 提示 `当前模型不支持图片识别`（HTTP 422） | 当前模型不支持读图，换一个支持图片的模型。 |
@@ -222,3 +293,9 @@ curl http://127.0.0.1:<端口>/dsh-translation/api/health
 - 公开演示部署：没有 SLA、没有公开的限流说明，也可能随时改版或下线。适合当试验路由，不适合放进生产链路。
 - 35B 的上下文是 24,576 token，而本插件允许 12 万字符的文档。批量按 6 段 / 16 句切分，正常文章放得下，单个段落写到几万字就会超。用演示接口时建议把 `concurrency` 降到 `2`。
 - 不要填真实密钥：接口根本不看它，而这个值会被存进本机凭据库。
+
+## 许可证
+
+本项目使用 Apache License 2.0，全文见 [LICENSE](LICENSE)。
+
+Copyright 2026 coldgust
