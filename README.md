@@ -12,7 +12,7 @@ A DeepSeek Harness plugin that adds a translation workspace to the Web GUI: tran
 - **On-device history** — every successful translation is saved as an entry. A right-hand drawer lists up to 200 documents with the title (first source line), last-used time, language pair, and segment counts. Search matches source or translation (case-insensitive, space-separated keywords are AND-ed) and quotes the hit with surrounding context, highlighting every keyword. Pin an entry to keep it on top without touching its last-used time; deleting takes two clicks.
 - **Image OCR translation** — paste a screenshot or pick an image; the vision model transcribes it, fills the source box, and translates. Large images are downscaled to a 2048 px long edge and re-encoded as JPEG in the browser before upload.
 - **File translation** — `Translate file` (or dropping a file on the source box) imports `.txt`, `.md`, `.log`, `.html`, `.htm`, and `.docx`, then translates it in one go. Text files are read as UTF-8; Word documents are unpacked in the browser — no library, no upload of the raw file — and reduced to paragraphs; HTML pages lose scripts, styles, and the head first, so only visible prose reaches the model. The imported name stays on the document, and `Download translation` in `Full text` writes the result back out: `.md` for Markdown, a `<p>`-per-paragraph HTML document for HTML (styling and inline tags are not preserved), `.txt` for everything else.
-- **Model switching** — the header chip becomes a picker as soon as the Host's LLM registry advertises more than one model, grouped by provider: `Follow default` keeps tracking the profile's own selection, and any other entry pins that provider/model for translation, retranslation, scoring, and OCR from then on. The choice is remembered on this device and never rewrites existing text. Asking for a model that has since disappeared falls back to the default with a notice instead of failing every request, and a provider whose listing failed is named above the editor rather than silently leaving the page without a picker.
+- **Model switching** — the header chip becomes a picker as soon as the Host's LLM registry advertises more than one model, grouped by provider: `Follow default` keeps tracking the profile's own selection, and any other entry pins that provider/model for translation, retranslation, scoring, and OCR from then on. The choice is remembered on this device and never rewrites existing text. Asking for a model that has since disappeared falls back to the default with a notice instead of failing every request, and a provider whose listing failed is named above the editor rather than silently leaving the page without a picker. The [appendix](#appendix-adding-bilibilis-index-translate-models-as-a-route) walks through registering an outside endpoint (Bilibili Index-Translate) as one of those routes.
 - **AI retranslation** — `AI retranslate` redoes one segment; `Retranslate with prompt` sends a request such as “more colloquial” or “keep the legal terms” along with the source and current translation.
 - **Optional AI scoring** — scores stay hidden on every load. `AI score` scores one segment, `Score all` scores the current view (becoming `Rescore` once every segment already has a score), `Full-text score` scores the whole document, and the toolbar toggle reveals or hides everything fetched. Editing a translation clears the score it invalidated.
 - **Apply the feedback** — once a segment has a score, `Apply suggestion` sits at the end of its score comment line and sends that score and comment back as the instruction for a fresh retranslation, so the new version answers the reviewer directly; the stale score is dropped. When every segment in the view is scored, the toolbar adds `Apply all`, which rewrites them three at a time and writes each result back through the same path as a manual retranslation. `Full text` shows the same action on its score line after `Full-text score`, rewriting the document paragraph by paragraph under the document feedback. All three views share one rule: **while scores are hidden, no suggestion button is shown**.
@@ -128,3 +128,69 @@ Notes for maintainers:
 | `New translation` seems to have deleted the document | It does not: the document stays in history and the page opens a blank form. Open the header chip to switch back. |
 | A rollback lost the newer wording | It does not: the text you left is stored as a `Before rollback` revision. Open `Revisions` again and restore it. |
 | Edits disappeared after clearing browser data | History and edits live in `localStorage` only; there is no cloud copy. |
+
+## Appendix: adding Bilibili's Index-Translate models as a route
+
+### The model
+
+[Index-Translate](https://index-translate.bilibili.com/?p=/site/translate.html&lang=zh) is Bilibili's open machine-translation model family, and that page is its online demo. It runs on vLLM and speaks standard OpenAI Chat Completions, so it can be registered as an ordinary custom provider; once it is, this plugin's header picker can select it directly.
+
+- `Index-Translate-35B-A3B` — the flagship: a mixture-of-experts model (35B total parameters, 3B active) that translates between many languages and can also read text straight out of an image, which in this plugin means translation, retranslation, scoring, and OCR all work.
+- `Index-Translate-9B` / `Index-Translate-2B` — smaller, faster text-only models for high volume.
+
+The demo needs no API key and comes with no SLA, so treat it as a playground route.
+
+### Method 1: the Web UI (recommended)
+
+The most direct way, and what most users want.
+
+1. Start the DeepSeek Harness Web UI: run `dsh web` and open the interface.
+2. Open the model settings: click **Settings** in the sidebar, then **Models**.
+3. Add a custom provider: click **Add a custom provider**.
+4. Fill in the form:
+
+   - **Provider ID**: `bilibili-translate` — a lowercase identifier you choose, used internally to recognise the provider
+   - **Base URL**: `https://index-translate.bilibili.com/v1`
+   - **Protocol**: `OpenAI Completions` (`openai-completions`)
+   - **API Key**: any placeholder, for example `index`
+   - **Models**: click **Fetch available models**; it should discover `Index-Translate-35B-A3B`. If that fails, add the model id by hand.
+
+5. Save, then pick the Bilibili model from the model dropdown.
+
+### Method 2: edit the settings file directly
+
+For people who prefer files or want to script the setup. Edit `$DSH_HOME/settings.yaml` (usually `~/.dsh/settings.yaml`; on the desktop app the live file is `~/.dsh/profiles/desktop/cordis.patch.yml`) and add an entry under `providers` inside the `llm-pi-ai` section:
+
+```yaml
+llm-pi-ai:
+  providers:
+    bilibili-translate:                      # Provider ID
+      apiKeyEnv: BILIBILI_TRANSLATE_API_KEY  # names an environment variable
+      api: openai-completions
+      baseURL: https://index-translate.bilibili.com/v1
+      models:
+        - id: Index-Translate-35B-A3B
+```
+
+Note that `apiKeyEnv` is a *reference*, not a value: the Harness process has to be able to read that variable. The endpoint ignores the key, so any non-empty value works. A Harness launched from Finder or the Dock does not inherit your shell environment, so if the variable cannot resolve, send the placeholder as a header instead:
+
+```yaml
+      headers:
+        Authorization: Bearer index
+```
+
+### Verify
+
+Restart Harness — providers are registered at boot. This plugin's header picker then gains a `bilibili-translate` group, and picking `Index-Translate-35B-A3B` pins it for translation, retranslation, scoring, and OCR. You can also check the endpoint directly:
+
+```bash
+curl http://127.0.0.1:<port>/dsh-translation/api/health
+```
+
+Entries under `models` with `provider: bilibili-translate` mean the route is live.
+
+### Caveats
+
+- A public demo deployment: no SLA, no published rate limit, and it may change or disappear. A playground route, not production capacity.
+- Context is 24,576 tokens on the 35B, while this plugin accepts documents up to 120,000 characters. Batches are 6 paragraphs or 16 sentences, so normal documents fit; a single paragraph of tens of thousands of characters does not. Drop `concurrency` to `2` for the demo endpoint.
+- Do not paste a real key. The endpoint ignores it, and whatever you type is stored in your local credential store.
