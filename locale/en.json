@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Translation Assistant",
-    "description": "Translation workspace with paragraph and sentence comparison, .txt/.md/.html/.docx file import with downloadable output, and a disk-backed workspace folder where any file can be translated, proofread, and written back (save-as or overwrite) — one at a time or in a batch. A model picker in the header groups routes by provider (follow the profile default or pin one model). Edit any translation, have AI redo it with your instruction, or turn a score and its feedback into one more pass, translate text from an image, stop a running pass, keep a searchable on-device history with pinning, and edit, copy, or score the full text. Scores stay hidden until you ask, and every AI pass leaves a revision you can roll back to."
+    "description": "Translate text, files, and screenshots in DeepSeek Harness, side by side: proofread any segment with AI retranslation and scoring, run a whole folder through the disk-backed workspace, switch models per request, and keep every draft in on-device history with revisions."
   }
 }
