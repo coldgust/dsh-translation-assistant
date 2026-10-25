@@ -79,6 +79,8 @@ window.__ModuleLoader__.load({
       footerHint: '评分由 AI 判断，仅供参考；点“AI 评分”或“全文评分”获取。',
       newTranslation: '新建翻译',
       newTranslationHint: '开始一篇新翻译，当前文档会留在历史里',
+      stopTranslation: '停止',
+      stopTranslationHint: '停止正在进行的翻译或重译',
       historyTitle: '翻译历史',
       historyCount: '共 {count} 条',
       historySwitchHint: '打开翻译历史，切换到其它文档',
@@ -245,6 +247,8 @@ window.__ModuleLoader__.load({
       footerHint: 'Scores are AI judgements for reference only; fetch them with “AI score” or “Full-text score”.',
       newTranslation: 'New translation',
       newTranslationHint: 'Start a new translation; the current document stays in history',
+      stopTranslation: 'Stop',
+      stopTranslationHint: 'Stop the running translation or retranslation',
       historyTitle: 'Translation history',
       historyCount: '{count} saved',
       historySwitchHint: 'Open translation history to switch documents',
@@ -943,20 +947,24 @@ window.__ModuleLoader__.load({
      * Call one JSON endpoint of the Host half.
      * @param {string} action - endpoint name.
      * @param {object} payload - JSON request body.
+     * @param {{ signal?: AbortSignal }} [options] - abort signal for the pass.
      * @returns {Promise<object>} parsed response.
      */
-    async function requestJson(action, payload) {
+    async function requestJson(action, payload, options = {}) {
+      const signal = options && options.signal;
       let response;
       try {
         response = await fetch(`${API}/${action}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', accept: 'application/json' },
           body: JSON.stringify(payload),
+          ...(signal ? { signal } : {}),
         });
-      } catch {
-        const error = new Error('network');
-        error.code = 'NETWORK';
-        throw error;
+      } catch (error) {
+        if ((signal && signal.aborted) || (error && error.name === 'AbortError')) throw abortedError();
+        const network = new Error('network');
+        network.code = 'NETWORK';
+        throw network;
       }
       let data = null;
       try {
@@ -982,6 +990,17 @@ window.__ModuleLoader__.load({
     function localError(message) {
       const error = new Error(message);
       error.code = 'LOCAL';
+      return error;
+    }
+
+    /**
+     * Create the error a stopped pass unwinds with. Callers turn it into a
+     * quiet "stopped" notice instead of a failure report.
+     * @returns {Error} error carrying the `ABORTED` code.
+     */
+    function abortedError() {
+      const error = new Error('aborted');
+      error.code = 'ABORTED';
       return error;
     }
 
@@ -1789,6 +1808,7 @@ function storedRoutePreference(value) {
 .dta-drawerEmpty{margin:8px 6px;padding:18px 12px;border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:12.5px;line-height:19px}
 .dta-drawerFoot{flex:none;padding:10px 16px 14px;border-top:.5px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:17px}
 .dta-versionsBtn{flex:none;padding:0 8px}
+.dta-stopBtn{flex:none;padding:0 8px}
 .dta-drawer--versions{width:min(420px,94vw)}
 .dta-versionBar{display:flex;align-items:center;gap:8px;padding:0 16px 12px}
 .dta-versionBar .dta-btn{flex:1 1 auto;justify-content:center}
@@ -1874,7 +1894,6 @@ function storedRoutePreference(value) {
 .dta-fileName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dta-fileClear{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1;cursor:pointer}
 .dta-fileClear:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}
-.dta-statusLine{display:flex;align-items:center;gap:8px;margin:0;color:var(--dsw-alias-label-secondary);font-size:12.5px}
 .dta-notice{margin:0;padding:8px 12px;border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:12.5px;line-height:18px}
 .dta-notice--error{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent)}
 .dta-list{display:flex;flex-direction:column;gap:12px}
@@ -1974,6 +1993,14 @@ function storedRoutePreference(value) {
       const [showScores, setShowScores] = React.useState(false);
       const [status, setStatus] = React.useState(null);
       const [busy, setBusy] = React.useState({});
+      // The AbortController of the pass that is currently running (translate,
+      // retranslate, optimize). The stop button beside the progress aborts it;
+      // null means nothing is running.
+      const abortRef = React.useRef(null);
+      // One controller per segment row that is rewriting right now, keyed by
+      // segment id — several rows can run at the same time, each with its own
+      // stop button.
+      const segmentAborts = React.useRef(new Map());
       const [errors, setErrors] = React.useState({});
       const [promptFor, setPromptFor] = React.useState(null);
       const [promptText, setPromptText] = React.useState('');
@@ -2230,9 +2257,9 @@ function storedRoutePreference(value) {
                 ? format(t('scoreAllProgress'), { done: status.done ?? 0, total: status.total ?? 0 })
               : status.kind === 'optimizing'
                 ? format(t('optimizeProgress'), { done: status.done ?? 0, total: status.total ?? 0 })
-                // Whole-document retranslate has no top status line: the
-                // retranslate button in the full-text toolbar already shows
-                // the same progress right where the action lives.
+                // Whole-document retranslate never reaches the landing form;
+                // its progress lives on the retranslate button in the
+                // full-text toolbar.
                 : '';
 
       /**
@@ -2379,6 +2406,66 @@ function storedRoutePreference(value) {
       }
 
       /**
+       * Open one abort scope for the running pass: remember the controller so
+       * the header stop button can fire it, and hand the signal to the pass.
+       * @returns {AbortSignal} signal to pass into every request of the pass.
+       */
+      function beginAbortable() {
+        const controller = new AbortController();
+        abortRef.current = controller;
+        return controller.signal;
+      }
+
+      /** Close the abort scope once the pass has settled. */
+      function endAbortable() {
+        abortRef.current = null;
+      }
+
+      /**
+       * True when this failure is only the user stopping the pass, not a
+       * request error that deserves a failure notice.
+       * @param {unknown} error - thrown value.
+       * @returns {boolean} true when the pass was stopped on purpose.
+       */
+      function isAborted(error) {
+        return Boolean(error) && error.code === 'ABORTED';
+      }
+
+      /** Stop the pass that is currently running, keeping what already landed. */
+      function handleStopTranslation() {
+        const controller = abortRef.current;
+        if (controller) controller.abort();
+      }
+
+      /**
+       * The stop button, rendered right next to whichever progress display
+       * the running pass owns. Every busy action button gets one beside it.
+       * @param {() => void} [onStop] - handler; defaults to the whole pass.
+       * @returns {object} button element.
+       */
+      function renderStopButton(onStop = handleStopTranslation) {
+        return h('button', {
+          type: 'button',
+          className: 'dta-btn dta-btn--sm dta-btn--ghost dta-btn--danger dta-stopBtn',
+          'aria-label': t('stopTranslationHint'),
+          title: t('stopTranslationHint'),
+          onClick: onStop,
+        },
+          h('svg', {
+            viewBox: '0 0 16 16',
+            width: 11,
+            height: 11,
+            fill: 'currentColor',
+            stroke: 'none',
+            'aria-hidden': true,
+          },
+            h('rect', { x: 3.5, y: 3.5, width: 9, height: 9, rx: 1.6 }),
+          ),
+          h('span', null, t('stopTranslation')),
+        );
+      }
+
+      /**
        * Translate the whole text in one request so the model sees the full
        * context. The source goes out as-is — the Host prompt asks the model
        * to keep the paragraph structure — and the reply is split back into
@@ -2398,22 +2485,28 @@ function storedRoutePreference(value) {
         setErrors({});
         setPromptFor(null);
         setStatus({ kind: 'translating', whole: true });
-        const data = await requestJson('translate', {
-          document: text,
-          targetLanguage,
-          ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
-          ...routePayload(),
-        });
-        if (typeof data.document !== 'string' || !data.document.trim()) {
-          throw localError(t('translateFailed'));
+        const signal = beginAbortable();
+        try {
+          const data = await requestJson('translate', {
+            document: text,
+            targetLanguage,
+            ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
+            ...routePayload(),
+          }, { signal });
+          if (signal.aborted) throw abortedError();
+          if (typeof data.document !== 'string' || !data.document.trim()) {
+            throw localError(t('translateFailed'));
+          }
+          const pieces = data.document
+            .trim()
+            .split(/\n{2,}/)
+            .map((part) => part.trim())
+            .filter(Boolean);
+          if (pieces.length !== shape.paragraphs.length) return false;
+          return applyDocumentPieces(text, meta, shape, pieces, data.model ? String(data.model) : null);
+        } finally {
+          endAbortable();
         }
-        const pieces = data.document
-          .trim()
-          .split(/\n{2,}/)
-          .map((part) => part.trim())
-          .filter(Boolean);
-        if (pieces.length !== shape.paragraphs.length) return false;
-        return applyDocumentPieces(text, meta, shape, pieces, data.model ? String(data.model) : null);
       }
 
       /**
@@ -2436,17 +2529,23 @@ function storedRoutePreference(value) {
         setErrors({});
         setPromptFor(null);
         setStatus({ kind: 'translating', array: true });
-        const data = await requestJson('translate', {
-          document: shape.paragraphs,
-          targetLanguage,
-          ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
-          ...routePayload(),
-        });
-        const reply = Array.isArray(data.paragraphs) ? data.paragraphs : null;
-        if (!reply || reply.length !== shape.paragraphs.length) return false;
-        const pieces = reply.map((item) => String(item ?? '').trim());
-        if (!pieces.every(Boolean)) return false;
-        return applyDocumentPieces(text, meta, shape, pieces, data.model ? String(data.model) : null);
+        const signal = beginAbortable();
+        try {
+          const data = await requestJson('translate', {
+            document: shape.paragraphs,
+            targetLanguage,
+            ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
+            ...routePayload(),
+          }, { signal });
+          if (signal.aborted) throw abortedError();
+          const reply = Array.isArray(data.paragraphs) ? data.paragraphs : null;
+          if (!reply || reply.length !== shape.paragraphs.length) return false;
+          const pieces = reply.map((item) => String(item ?? '').trim());
+          if (!pieces.every(Boolean)) return false;
+          return applyDocumentPieces(text, meta, shape, pieces, data.model ? String(data.model) : null);
+        } finally {
+          endAbortable();
+        }
       }
 
       /**
@@ -2483,6 +2582,12 @@ function storedRoutePreference(value) {
             const landed = await translateWholeDocument(text, meta, { sentences, paragraphs });
             if (landed) return true;
           } catch (error) {
+            // Stopping is deliberate: the button vanishing and the progress
+            // clearing is feedback enough, so no notice is raised here.
+            if (isAborted(error)) {
+              setStatus(null);
+              return false;
+            }
             if (Number(error && error.status) !== 400) {
               setStatus(null);
               setNotice({ kind: 'error', text: describeError(error, t) });
@@ -2499,6 +2604,10 @@ function storedRoutePreference(value) {
             const landed = await translateArrayDocument(text, meta, { sentences, paragraphs });
             if (landed) return true;
           } catch (error) {
+            if (isAborted(error)) {
+              setStatus(null);
+              return false;
+            }
             if (Number(error && error.status) !== 400) {
               setStatus(null);
               setNotice({ kind: 'error', text: describeError(error, t) });
@@ -2538,15 +2647,18 @@ function storedRoutePreference(value) {
         // spans several requests, so remember the last one that answered.
         let replyModel = null;
         setStatus({ kind: 'translating', done: 0, total: paragraphs.length });
+        const signal = beginAbortable();
         try {
           await mapLimit(chunks, 3, async (chunk) => {
+            // A stop is already in flight: do not start any further chunks.
+            if (signal.aborted) return;
             try {
               const data = await requestJson('translate', {
                 [chunk.kind]: chunk.items,
                 targetLanguage,
                 ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
                 ...routePayload(),
-              });
+              }, { signal });
               if (typeof data.model === 'string' && data.model) replyModel = data.model;
               const list = chunk.kind === 'sentences' ? data.sentences : data.paragraphs;
               if (Array.isArray(list)) {
@@ -2560,12 +2672,19 @@ function storedRoutePreference(value) {
                 failed += chunk.items.length;
               }
             } catch (error) {
+              // Stopped chunks are neither failures nor progress; the pass
+              // unwinds right after.
+              if (isAborted(error)) return;
               failed += chunk.items.length;
               lastError = error;
             }
             if (chunk.kind === 'paragraphs') done += chunk.items.length;
             setStatus({ kind: 'translating', done, total: paragraphs.length });
           });
+          if (signal.aborted) {
+            setStatus(null);
+            return false;
+          }
           if (failed >= totalItems) {
             setStatus(null);
             setNotice({ kind: 'error', text: lastError ? describeError(lastError, t) : t('translateFailed') });
@@ -2610,6 +2729,8 @@ function storedRoutePreference(value) {
           setStatus(null);
           setNotice({ kind: 'error', text: describeError(error, t) });
           return false;
+        } finally {
+          endAbortable();
         }
       }
 
@@ -2911,8 +3032,10 @@ function storedRoutePreference(value) {
         const before = doc;
         let rewritten = 0;
         let done = 0;
+        const signal = beginAbortable();
         try {
           await mapLimit(snapshot, 3, async (item) => {
+            if (signal.aborted) return;
             try {
               const data = await requestJson('retranslate', {
                 source: item.source,
@@ -2922,7 +3045,7 @@ function storedRoutePreference(value) {
                 targetLanguage,
                 ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
                 ...routePayload(),
-              });
+              }, { signal });
               if (typeof data.translation === 'string' && data.translation.trim()) {
                 patchSegment(collection, item.id, { translation: data.translation.trim(), score: null });
                 rewritten += 1;
@@ -2930,6 +3053,7 @@ function storedRoutePreference(value) {
                 setErrors((current) => ({ ...current, [item.id]: t('retranslateFailed') }));
               }
             } catch (error) {
+              if (isAborted(error)) return;
               setErrors((current) => ({ ...current, [item.id]: describeError(error, t) }));
             }
             done += 1;
@@ -2937,6 +3061,7 @@ function storedRoutePreference(value) {
           });
           if (rewritten > 0) recordVersion(before, 'optimize');
         } finally {
+          endAbortable();
           setStatus(null);
         }
       }
@@ -3021,6 +3146,7 @@ function storedRoutePreference(value) {
         // `array` marks the segment-array mode, so the busy label can name
         // the mode instead of the whole-document wording.
         setStatus({ kind: 'retranslatingFull', array: transMode === 'array' });
+        const signal = beginAbortable();
         try {
           const data = await requestJson('retranslate', {
             source: doc.sourceText,
@@ -3030,7 +3156,8 @@ function storedRoutePreference(value) {
             targetLanguage,
             ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
             ...routePayload(),
-          });
+          }, { signal });
+          if (signal.aborted) throw abortedError();
           if (typeof data.translation !== 'string' || !data.translation.trim()) {
             setNotice({ kind: 'error', text: t('retranslateFailed') });
             return;
@@ -3054,8 +3181,12 @@ function storedRoutePreference(value) {
           });
           recordVersion(before, 'retranslate');
         } catch (error) {
-          setNotice({ kind: 'error', text: describeError(error, t) });
+          // Stopping is deliberate; no notice is raised for it.
+          if (!isAborted(error)) {
+            setNotice({ kind: 'error', text: describeError(error, t) });
+          }
         } finally {
+          endAbortable();
           setStatus(null);
         }
       }
@@ -3083,8 +3214,10 @@ function storedRoutePreference(value) {
         setPromptFor(null);
         setPromptText('');
         setStatus({ kind: 'retranslatingFull', done: 0, total: snapshot.length });
+        const signal = beginAbortable();
         try {
           await mapLimit(snapshot, 3, async (item) => {
+            if (signal.aborted) return;
             try {
               const data = await requestJson('retranslate', {
                 source: item.source,
@@ -3094,7 +3227,7 @@ function storedRoutePreference(value) {
                 targetLanguage,
                 ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
                 ...routePayload(),
-              });
+              }, { signal });
               if (typeof data.translation === 'string' && data.translation.trim()) {
                 patchSegment('paragraphs', item.id, { translation: data.translation.trim(), score: null });
                 rewritten += 1;
@@ -3102,16 +3235,19 @@ function storedRoutePreference(value) {
                 failed += 1;
               }
             } catch (error) {
+              if (isAborted(error)) return;
               failed += 1;
               setErrors((current) => ({ ...current, [item.id]: describeError(error, t) }));
             }
             done += 1;
             setStatus({ kind: 'retranslatingFull', done, total: snapshot.length });
           });
-          if (rewritten > 0) recordVersion(before, 'retranslate');
-          // The full-text view has no per-segment rows to hang errors on, so a
-          // partial or total failure is reported as one notice instead.
-          if (failed > 0) {
+          if (signal.aborted) {
+            // Stopped on purpose: rewrites that already landed stay, and the
+            // failure counts are not reported as an error.
+          } else if (failed > 0) {
+            // The full-text view has no per-segment rows to hang errors on, so
+            // a partial or total failure is reported as one notice instead.
             setNotice({
               kind: rewritten > 0 ? 'warn' : 'error',
               text: rewritten > 0
@@ -3119,7 +3255,9 @@ function storedRoutePreference(value) {
                 : t('retranslateFailed'),
             });
           }
+          if (rewritten > 0) recordVersion(before, 'retranslate');
         } finally {
+          endAbortable();
           setStatus(null);
         }
       }
@@ -3141,6 +3279,9 @@ function storedRoutePreference(value) {
         const before = doc;
         clearSegmentError(id);
         setBusy((current) => ({ ...current, [id]: busyKind }));
+        const controller = new AbortController();
+        segmentAborts.current.set(id, controller);
+        const signal = controller.signal;
         try {
           const data = await requestJson('retranslate', {
             source: item.source,
@@ -3150,7 +3291,8 @@ function storedRoutePreference(value) {
             targetLanguage,
             ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
             ...routePayload(),
-          });
+          }, { signal });
+          if (signal.aborted) throw abortedError();
           if (typeof data.translation !== 'string' || !data.translation.trim()) {
             throw localError(t('retranslateFailed'));
           }
@@ -3159,14 +3301,24 @@ function storedRoutePreference(value) {
           setPromptFor(null);
           setPromptText('');
         } catch (error) {
-          setErrors((current) => ({ ...current, [id]: describeError(error, t) }));
+          // Stopping is deliberate; no notice is raised for it.
+          if (!isAborted(error)) {
+            setErrors((current) => ({ ...current, [id]: describeError(error, t) }));
+          }
         } finally {
+          segmentAborts.current.delete(id);
           setBusy((current) => {
             const next = { ...current };
             delete next[id];
             return next;
           });
         }
+      }
+
+      /** Stop one segment's rewrite; the request has not landed, so nothing changes. */
+      function handleStopSegment(id) {
+        const controller = segmentAborts.current.get(id);
+        if (controller) controller.abort();
       }
 
       /** Score one segment, revealing scores as a side effect. */
@@ -3639,6 +3791,9 @@ function storedRoutePreference(value) {
                 ? statusText
                 : t('translate'),
             ),
+            // The stop lives with the progress it belongs to: right beside the
+            // button that shows it. OCR and file reads are quick and unstoppable.
+            status && status.kind === 'translating' ? renderStopButton() : null,
           ),
         );
       }
@@ -3652,13 +3807,16 @@ function storedRoutePreference(value) {
         // The suggestion reads the score, so it belongs where the score and its
         // comment are shown, not in the row of segment actions.
         const optimizeButton = showScores && score
-          ? h('button', {
-            type: 'button',
-            className: 'dta-btn dta-btn--sm',
-            title: t('optimizeHint'),
-            disabled: busyKind === 'retranslate' || busyKind === 'optimize',
-            onClick: () => handleOptimize(collection, item),
-          }, busyKind === 'optimize' ? t('optimizing') : t('optimize'))
+          ? h(React.Fragment, null,
+            h('button', {
+              type: 'button',
+              className: 'dta-btn dta-btn--sm',
+              title: t('optimizeHint'),
+              disabled: busyKind === 'retranslate' || busyKind === 'optimize',
+              onClick: () => handleOptimize(collection, item),
+            }, busyKind === 'optimize' ? t('optimizing') : t('optimize')),
+            busyKind === 'optimize' ? renderStopButton(() => handleStopSegment(item.id)) : null,
+          )
           : null;
         return h('article', { className: 'dta-seg', key: item.id },
           h('header', { className: 'dta-segHead' },
@@ -3674,6 +3832,7 @@ function storedRoutePreference(value) {
                 disabled: busyKind === 'retranslate' || busyKind === 'optimize',
                 onClick: () => handleRetranslate(collection, item, ''),
               }, busyKind === 'retranslate' ? t('retranslating') : t('retranslate')),
+              busyKind === 'retranslate' ? renderStopButton(() => handleStopSegment(item.id)) : null,
               h('button', {
                 type: 'button',
                 className: 'dta-btn dta-btn--sm',
@@ -4147,24 +4306,21 @@ function storedRoutePreference(value) {
                   // the batch action waits until the whole view has been scored
                   // and the scores are actually visible.
                   showScores && allScored
-                    ? h('button', {
-                      type: 'button',
-                      className: 'dta-btn',
-                      title: t('optimizeAllHint'),
-                      disabled: isWorking,
-                      onClick: handleOptimizeAll,
-                    }, optimizingStatus
-                      ? format(t('optimizeProgress'), { done: status.done, total: status.total })
-                      : t('optimizeAll'))
+                    ? h(React.Fragment, null,
+                      h('button', {
+                        type: 'button',
+                        className: 'dta-btn',
+                        title: t('optimizeAllHint'),
+                        disabled: isWorking,
+                        onClick: handleOptimizeAll,
+                      }, optimizingStatus
+                        ? format(t('optimizeProgress'), { done: status.done, total: status.total })
+                        : t('optimizeAll')),
+                      optimizingStatus ? renderStopButton() : null,
+                    )
                     : null,
                 ),
             ),
-            status && statusText
-              ? h('p', { className: 'dta-statusLine', role: 'status' },
-                h(BusyDot, null),
-                statusText,
-              )
-              : null,
           ),
           view === 'full' ? renderFullText() : h('div', { className: 'dta-list' },
             items.map((item, index) => renderSegment(item, index, collectionKey)),
@@ -4218,17 +4374,20 @@ function storedRoutePreference(value) {
               : null,
             h('div', { className: 'dta-toolbarSpacer' }),
             transModePicker(),
-            h('button', {
-              type: 'button',
-              className: 'dta-btn',
-              title: t('fullRetranslateHint'),
-              disabled: isWorking,
-              onClick: () => runFullRetranslate(''),
-            }, fullRetranslating
-              ? (status.total
-                ? format(t('retranslateAllProgress'), { done: status.done, total: status.total })
-                : status.array ? t('retranslateArrayBusy') : t('retranslateFullBusy'))
-              : t('retranslate')),
+            h(React.Fragment, null,
+              h('button', {
+                type: 'button',
+                className: 'dta-btn',
+                title: t('fullRetranslateHint'),
+                disabled: isWorking,
+                onClick: () => runFullRetranslate(''),
+              }, fullRetranslating
+                ? (status.total
+                  ? format(t('retranslateAllProgress'), { done: status.done, total: status.total })
+                  : status.array ? t('retranslateArrayBusy') : t('retranslateFullBusy'))
+                : t('retranslate')),
+              fullRetranslating ? renderStopButton() : null,
+            ),
             h('button', {
               type: 'button',
               className: 'dta-btn',
@@ -4331,15 +4490,18 @@ function storedRoutePreference(value) {
               fullScore.comment
                 ? h('span', { className: 'dta-scoreText' }, `${t('scoreLabel')} ${fullScore.value} · ${fullScore.comment}`)
                 : null,
-              h('button', {
-                type: 'button',
-                className: 'dta-btn dta-btn--sm',
-                title: t('optimizeFullHint'),
-                disabled: isWorking,
-                onClick: handleOptimizeFull,
-              }, optimizing
-                ? format(t('optimizeProgress'), { done: status.done, total: status.total })
-                : t('optimize')),
+              h(React.Fragment, null,
+                h('button', {
+                  type: 'button',
+                  className: 'dta-btn dta-btn--sm',
+                  title: t('optimizeFullHint'),
+                  disabled: isWorking,
+                  onClick: handleOptimizeFull,
+                }, optimizing
+                  ? format(t('optimizeProgress'), { done: status.done, total: status.total })
+                  : t('optimize')),
+                optimizing ? renderStopButton() : null,
+              ),
             )
             : null,
           h('p', { className: 'dta-hint' }, t('fullTextHint')),

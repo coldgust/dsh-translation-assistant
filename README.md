@@ -49,7 +49,7 @@ If you prefer files or want to script the setup, edit the profile's `package.jso
     }
   },
   "dependencies": {
-    "dsh-translation-assistant": "^1.16.3"
+    "dsh-translation-assistant": "^1.16.4"
   }
 }
 ```
@@ -100,6 +100,7 @@ Then run `pnpm install` in that directory and restart Harness. Keep the profile'
 - **Retranslate** — `AI retranslate` redoes one segment; `Retranslate with prompt` adds an instruction such as "more colloquial". Both work in the full-text view and follow the mode: coherence and alignment send one request for the document, speed-first runs per-paragraph with progress. Each pass leaves one revision.
 - **Score on demand** — scores stay hidden on every load. Score one segment, the current view, or the whole document, then reveal them from the toolbar. Editing a translation clears its score.
 - **Turn feedback into a rewrite** — `Apply suggestion` sends the score and comment back as the instruction for a fresh pass; `Apply all` does the same for every scored segment in the view, three at a time. The buttons are hidden while scores are hidden.
+- **Stop a running pass** — the `Stop` button always sits beside the progress it belongs to: next to the translate button on the landing form, next to `AI retranslate` and `Apply suggestion` in the full-text view, and next to `Apply all` or a busy segment's own retranslate button in the paragraph and sentence views. In-flight requests are cancelled, further chunks are skipped, and rewrites that already landed are kept.
 
 ### Keep track
 
@@ -206,7 +207,7 @@ History, edits, and preferences never leave the browser; only the text being tra
 This directory is the installed bundle (the profile links it), so `client.js` is hot-swapped into the open page; Host changes need a Harness restart.
 
 ```bash
-# 106 unit/integration tests: engine (translation/retranslation/scoring/OCR),
+# 111 unit/integration tests: engine (translation/retranslation/scoring/OCR),
 # the HTTP handler, model-catalog discovery and route overrides, and the page
 # rendered through a minimal React harness (no browser needed).
 node --test 'test/*.test.mjs'

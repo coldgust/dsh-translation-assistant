@@ -265,11 +265,11 @@ function createPage(options = {}) {
   // the missing list with an empty array and, in whole-document mode, a
   // reply that only carries the lists is normalized by joining the
   // paragraphs back.
-  const runHandler = (action, body) => {
+  const runHandler = (action, body, signal) => {
     let payload = body;
     if (action === 'translate' && body) {
       payload = { sentences: [], paragraphs: [], ...body };
-      const value = handlers[action](payload);
+      const value = handlers[action](payload, signal);
       if (body.document && value && value.document === undefined && Array.isArray(value.paragraphs)) {
         return {
           ...value,
@@ -278,7 +278,7 @@ function createPage(options = {}) {
       }
       return value;
     }
-    return handlers[action](payload);
+    return handlers[action](payload, signal);
   };
   const fetchImpl = async (url, init = {}) => {
     const action = String(url).split('/').pop();
@@ -286,8 +286,9 @@ function createPage(options = {}) {
     fetchLog.push({ action, body });
     if (!handlers[action]) throw new Error(`Unexpected fetch: ${url}`);
     // A handler may return a promise to hold the request in flight, which is
-    // how tests observe intermediate progress states.
-    const value = await runHandler(action, body);
+    // how tests observe intermediate progress states. The abort signal rides
+    // along so a handler can reject when the page stops the pass.
+    const value = await runHandler(action, body, init.signal);
     // A handler may answer with a full error response to exercise the
     // client's failure paths.
     if (value && typeof value === 'object' && value.ok === false && Number.isFinite(Number(value.status))) {
@@ -420,6 +421,90 @@ test('landing view renders and translates into the paragraph comparison by defau
   await page.click('逐句对比');
   assert.match(page.text(), /句1译/);
   assert.match(page.text(), /句3译/);
+});
+
+/** The rejection a real fetch produces when its signal fires. */
+function abortRejection() {
+  const error = new Error('The operation was aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+/** A request handler that hangs until the page aborts its signal. */
+function hangingUntilAbort() {
+  return (_body, signal) => new Promise((resolve, reject) => {
+    if (signal) signal.addEventListener('abort', () => reject(abortRejection()));
+    // Never settles on its own: the test stops the pass through the header.
+  });
+}
+
+test('the header stop button aborts a running batched translation', async () => {
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: hangingUntilAbort(),
+    },
+  });
+  await page.flush();
+  // Nothing is running yet, so the header has no stop button.
+  assert.equal(page.findButton(page.t('stopTranslation')), undefined);
+  const source = Array.from({ length: 20 }, (_item, index) => `Paragraph ${index + 1}.`).join('\n\n');
+  await page.typeIn(page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')), source);
+  await page.click('开始翻译');
+  assert.ok(page.findButton(page.t('stopTranslation')), 'stop button must appear while translating');
+  await page.click(page.t('stopTranslation'));
+  assert.doesNotMatch(page.text(), /已停止|请求失败|翻译没有返回/, 'a stop is silent: no notice box at all');
+  assert.equal(page.findButton(page.t('stopTranslation')), undefined, 'stop button hides once stopped');
+  // 20 paragraphs make 4 paragraph chunks plus sentence chunks; only the
+  // chunks already in flight were sent, the rest were skipped.
+  const calls = page.fetchLog.filter((entry) => entry.action === 'translate').length;
+  assert.equal(calls < 6, true, `chunks must be skipped after a stop, got ${calls} calls`);
+  // Nothing landed: the landing input keeps the draft.
+  assert.doesNotMatch(page.text(), /Paragraph 1 译|段1译/);
+  const textarea = page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder'));
+  assert.equal(textarea.props.value, source);
+});
+
+test('the stop button works in whole-document mode without a batched fallback', async () => {
+  const page = createPage({
+    transMode: 'whole',
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: hangingUntilAbort(),
+    },
+  });
+  await page.flush();
+  await page.typeIn(page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')), 'First.\n\nSecond.');
+  await page.click('开始翻译');
+  assert.ok(page.findButton(page.t('stopTranslation')), 'stop button must appear while translating');
+  await page.click(page.t('stopTranslation'));
+  assert.doesNotMatch(page.text(), /已停止|请求失败|翻译没有返回/);
+  // The stopped whole-document request did not fall back to the batched pass.
+  assert.equal(page.fetchLog.filter((entry) => entry.action === 'translate').length, 1);
+  assert.equal(page.findButton(page.t('stopTranslation')), undefined);
+});
+
+test('a running full retranslation can be stopped, keeping what landed', async () => {
+  const page = createPage({
+    transMode: 'whole',
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: () => ({ document: '段落一译\n\n段落二译', model: 'm' }),
+      retranslate: hangingUntilAbort(),
+    },
+  });
+  await page.flush();
+  await page.typeIn(page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')), 'First.\n\nSecond.');
+  await page.click('开始翻译');
+  await page.click('全文');
+  await page.click('AI 重译');
+  assert.ok(page.findButton(page.t('stopTranslation')), 'stop button must appear while retranslating');
+  await page.click(page.t('stopTranslation'));
+  assert.doesNotMatch(page.text(), /已停止|请求失败|重译没有返回/);
+  // One retranslate request went out and the previous translation survives.
+  assert.equal(page.fetchLog.filter((entry) => entry.action === 'retranslate').length, 1);
+  assert.match(page.text(), /段落一译/);
+  assert.equal(page.findButton(page.t('stopTranslation')), undefined);
 });
 
 test('the full-text view shows the whole translation and copies it', async () => {
@@ -856,6 +941,61 @@ test('batch suggestions rewrite every scored segment and consume their scores', 
   assert.match(page.text(), /优化-Second paragraph\./);
   assert.equal(page.findButton('全部优化'), undefined, 'no suggestion survives the rewrite');
   assert.ok(page.findButton('全部评分'));
+});
+
+test('the paragraph view can stop a running batch optimize from the progress strip', async () => {
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: () => ({ sentences: ['句甲', '句乙'], paragraphs: ['段落甲', '段落乙'], model: 'm' }),
+      score: () => ({ score: 80, comment: '可以' }),
+      retranslate: hangingUntilAbort(),
+    },
+  });
+  await page.flush();
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'First paragraph.\n\nSecond paragraph.',
+  );
+  await page.click('开始翻译');
+  await page.click('全部评分');
+  await page.click('全部优化');
+  // The batch optimize button morphs into its progress label.
+  assert.match(page.text(), /优化中 0\/2/, 'the optimize progress shows on the button');
+  assert.ok(page.findButton(page.t('stopTranslation')), 'the stop button sits beside it');
+  await page.click(page.t('stopTranslation'));
+  assert.doesNotMatch(page.text(), /已停止|请求失败|重译没有返回/, 'a stop is silent: no notice box at all');
+  assert.equal(page.findButton(page.t('stopTranslation')), undefined);
+  // Nothing landed, so the scores survive and the batch action is offered again.
+  assert.ok(page.findButton('全部优化'), 'the stopped pass leaves the scores untouched');
+  assert.equal(page.fetchLog.filter((entry) => entry.action === 'retranslate').length, 2);
+});
+
+test('a single segment retranslate can be stopped beside its own button', async () => {
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: () => ({ sentences: ['句甲', '句乙'], paragraphs: ['段落甲', '段落乙'], model: 'm' }),
+      retranslate: hangingUntilAbort(),
+    },
+  });
+  await page.flush();
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'First paragraph.\n\nSecond paragraph.',
+  );
+  await page.click('开始翻译');
+  // Only one stop button exists while one segment is rewriting.
+  await page.click('AI 重译');
+  assert.match(page.text(), /重译中…/, 'the busy segment button shows its own progress');
+  assert.ok(page.findButton(page.t('stopTranslation')), 'the stop sits beside the busy button');
+  assert.equal(page.fetchLog.filter((entry) => entry.action === 'retranslate').length, 1);
+  await page.click(page.t('stopTranslation'));
+  assert.doesNotMatch(page.text(), /已停止|请求失败|重译没有返回/, 'a stop is silent: no notice box at all');
+  assert.equal(page.findButton(page.t('stopTranslation')), undefined);
+  // The segment is idle again with its translation untouched.
+  assert.ok(page.findButton('AI 重译'), 'the segment button returns to its label');
+  assert.match(page.text(), /段落甲/);
 });
 
 test('the sentence view switches to sentence segments', async () => {
