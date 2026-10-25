@@ -1,0 +1,15 @@
+# Translation Assistant bundle: one Host row that serves the JSON API, exposes
+# the `translation_assistant` Agent tool, and ships the browser page.
+- insert:
+    - id: translation-assistant
+      name: '@local/dsh-translation-assistant'
+      config:
+        # Every field is optional; with no provider/model the plugin uses the
+        # profile's current default model selection at call time.
+        targetLanguage: 中文
+        maxTokens: 8192
+        scoreMaxTokens: 4096
+        maxRetries: 1
+        scoreRetries: 1
+        ocrMaxTokens: 4096
+        concurrency: 3

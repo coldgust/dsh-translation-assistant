@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Translation Assistant",
+    "description": "Translation workspace with paragraph and sentence comparison, editable output, AI retranslation with custom instructions, image OCR translation, full-text view and copy, and optional AI scoring per segment or for the whole document."
+  }
+}
