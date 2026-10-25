@@ -20,6 +20,9 @@ window.__ModuleLoader__.load({
     const PREFS_STORAGE = 'dsh-translation-assistant:prefs:v2';
     const HISTORY_STORAGE = 'dsh-translation-assistant:history:v1';
     const SESSION_STORAGE = 'dsh-translation-assistant:session:v1';
+    // Per-folder translation marks for the workspace file list, keyed by the
+    // absolute root so switching folders never shows stale badges.
+    const WORKSPACE_STORAGE = 'dsh-translation-assistant:workspace:v1';
     // History caps: a count limit plus a rough character budget so a long
     // document list cannot exhaust the ~5 MB localStorage quota.
     const MAX_HISTORY_ENTRIES = 200;
@@ -228,6 +231,48 @@ window.__ModuleLoader__.load({
       fullScoreTooLong: '原文或全文译文超过 6 万字符，请精简后再做全文评分。',
       noTranslationFull: '还没有可评分的全文译文，先完成翻译。',
       imageUnreadable: '图片无法读取，请换一张图片试试。',
+      workspace: '工作区',
+      workspaceHint: '打开一个文件夹，选任意文件翻译并校对，也可一键批量翻译',
+      wsRootPlaceholder: '粘贴文件夹路径，如 /Users/you/Documents/docs',
+      wsOpen: '打开',
+      wsPickFolder: '选择文件夹',
+      wsPickFallback: '当前浏览器无法获取所选文件夹的路径，请直接粘贴路径。',
+      wsRefresh: '刷新',
+      wsOutputLabel: '译文输出',
+      wsOutputSubfolder: '另存到子文件夹',
+      wsOutputSuffix: '另存为同目录副本',
+      wsOutputOverwrite: '覆盖原文件',
+      wsSuffixLabel: '副本后缀',
+      wsSubfolderName: '译文',
+      wsAutoSave: '校对改动自动保存',
+      wsTranslateAll: '翻译全部',
+      wsTranslateAllHint: '按顺序翻译所有未翻译的文件，翻完可逐个校对；进行中可停止',
+      wsBatchProgress: '批量翻译中 {done}/{total}…',
+      wsStopBatch: '停止批量',
+      wsPendingCount: '待翻译 {count} 个',
+      wsAllTranslated: '列表里的文件都已翻译过。',
+      wsCount: '{count} 个文件',
+      wsTreeLabel: '工作区文件目录树',
+      wsEmpty: '文件夹里还没有可翻译的文本文件（.txt / .md / .html / .docx）。',
+
+      wsTranslate: '翻译',
+      wsRetranslate: '重新翻译',
+      wsBannerTarget: '译文保存到',
+      wsSaveToFile: '保存到文件',
+      wsSaved: '已保存到 {path}。',
+      wsBackToList: '回到列表',
+      wsListFailed: '读取文件夹失败：{message}',
+      wsReadFailed: '读取 {name} 失败：{message}',
+      wsWriteFailed: '保存失败：{message}',
+      wsNothingToSave: '还没有可保存的译文。',
+      wsNoTranslation: '译文文件还不存在，请先翻译。',
+      wsBatchPartial: '{failed} 个文件翻译失败，可在列表中单独重试。',
+      wsRootMissing: '文件夹不存在或不可读。',
+      wsPathEscape: '路径超出工作区范围。',
+      wsExtUnsupported: '不支持这种文件类型。',
+      wsTooLargeFile: '文件超过大小限制。',
+      wsFileMissing: '文件不存在，可能已被移动或删除。',
+      wsExists: '目标文件已存在。',
     };
 
     const en = {
@@ -396,6 +441,47 @@ window.__ModuleLoader__.load({
       fullScoreTooLong: 'The source or full translation exceeds 60,000 characters; shorten it before scoring the document.',
       noTranslationFull: 'There is no full translation to score yet. Translate first.',
       imageUnreadable: 'This image could not be read. Try another file.',
+      workspace: 'Workspace',
+      workspaceHint: 'Open a folder, pick any file to translate and proofread, or batch-translate everything',
+      wsRootPlaceholder: 'Paste a folder path, e.g. /Users/you/Documents/docs',
+      wsOpen: 'Open',
+      wsPickFolder: 'Pick folder',
+      wsPickFallback: 'This browser cannot report the picked folder path. Paste the path instead.',
+      wsRefresh: 'Refresh',
+      wsOutputLabel: 'Translation output',
+      wsOutputSubfolder: 'Save into a subfolder',
+      wsOutputSuffix: 'Save as a sibling copy',
+      wsOutputOverwrite: 'Overwrite the original file',
+      wsSuffixLabel: 'Copy suffix',
+      wsSubfolderName: 'translated',
+      wsAutoSave: 'Auto-save proofread edits',
+      wsTranslateAll: 'Translate all',
+      wsTranslateAllHint: 'Translate every untranslated file in order, then proofread one by one; stoppable',
+      wsBatchProgress: 'Batch translating {done}/{total}…',
+      wsStopBatch: 'Stop batch',
+      wsPendingCount: '{count} pending',
+      wsAllTranslated: 'Every file in the list has been translated.',
+      wsCount: '{count} files',
+      wsTreeLabel: 'Workspace file tree',
+      wsEmpty: 'No translatable text files in this folder (.txt / .md / .html / .docx).',
+      wsTranslate: 'Translate',
+      wsRetranslate: 'Retranslate',
+      wsBannerTarget: 'saves to',
+      wsSaveToFile: 'Save to file',
+      wsSaved: 'Saved to {path}.',
+      wsBackToList: 'Back to list',
+      wsListFailed: 'Reading the folder failed: {message}',
+      wsReadFailed: 'Reading {name} failed: {message}',
+      wsWriteFailed: 'Saving failed: {message}',
+      wsNothingToSave: 'There is no translation to save yet.',
+      wsNoTranslation: 'The translated file does not exist yet. Translate first.',
+      wsBatchPartial: '{failed} file(s) failed to translate; retry them individually from the list.',
+      wsRootMissing: 'The folder does not exist or cannot be read.',
+      wsPathEscape: 'The path escapes the workspace root.',
+      wsExtUnsupported: 'This file type is not supported.',
+      wsTooLargeFile: 'The file exceeds the size limit.',
+      wsFileMissing: 'The file is gone — it may have been moved or deleted.',
+      wsExists: 'The target file already exists.',
     };
 
     /** @param {...unknown} values - class names to combine. @returns {string} class string. */
@@ -976,6 +1062,7 @@ window.__ModuleLoader__.load({
         const message = data && typeof data.error === 'string' ? data.error : `HTTP ${response.status}`;
         const error = new Error(message);
         error.status = response.status;
+        if (data && typeof data.code === 'string') error.code = data.code;
         throw error;
       }
       if (!data || typeof data !== 'object') throw new Error('invalid-response');
@@ -1583,6 +1670,88 @@ function normalizeImportedText(raw) {
 }
 
 /**
+ * Normalize the stored workspace settings into a complete object.
+ * @param {unknown} value - raw stored value.
+ * @returns {{ output: 'subfolder' | 'suffix' | 'overwrite', suffix: string, autoSave: boolean }} settings.
+ */
+function readWsSettings(value) {
+  const raw = value && typeof value === 'object' ? value : {};
+  return {
+    output: raw.output === 'suffix' || raw.output === 'overwrite' ? raw.output : 'subfolder',
+    suffix: typeof raw.suffix === 'string' && raw.suffix.trim()
+      ? raw.suffix.trim().replace(/^[.\\/]+/, '').replace(/[\\/]/g, '')
+      : 'zh',
+    autoSave: raw.autoSave === true,
+  };
+}
+
+/**
+ * Decode a base64 string into an ArrayBuffer, for `.docx` files that the
+ * Host ships over as base64.
+ * @param {string} base64 - base64 payload.
+ * @returns {ArrayBuffer} decoded bytes.
+ */
+function decodeBase64Bytes(base64) {
+  const binary = atob(String(base64 ?? ''));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes.buffer;
+}
+
+/**
+ * Human-readable file size for the workspace list.
+ * @param {unknown} bytes - raw size.
+ * @returns {string} formatted size, or '' when unknown.
+ */
+function wsFormatSize(bytes) {
+  const size = Number(bytes);
+  if (!Number.isFinite(size) || size < 0) return '';
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/**
+ * Turn the flat workspace file list into a directory tree for the sidebar.
+ * Folders sort before their files; siblings sort by name, case-insensitively.
+ * @param {Array<{relPath: string}>} files - workspace entries with slash paths.
+ * @returns {Array<object>} nodes: `{ kind:'dir', name, path, count, children }`
+ *   or `{ kind:'file', name, entry }`.
+ */
+function buildWsTree(files) {
+  const root = { dirs: new Map(), files: [] };
+  for (const entry of files) {
+    const parts = String(entry.relPath).split('/');
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      const seg = parts[i];
+      if (!node.dirs.has(seg)) node.dirs.set(seg, { dirs: new Map(), files: [] });
+      node = node.dirs.get(seg);
+    }
+    node.files.push(entry);
+  }
+  const walk = (node, prefix) => {
+    const children = [];
+    for (const [name, child] of [...node.dirs].sort((a, b) => a[0].localeCompare(b[0]))) {
+      const path = prefix ? `${prefix}/${name}` : name;
+      const nested = walk(child, path);
+      children.push({
+        kind: 'dir',
+        name,
+        path,
+        count: nested.reduce((sum, item) => sum + (item.kind === 'dir' ? item.count : 1), 0),
+        children: nested,
+      });
+    }
+    for (const entry of node.files.slice().sort((a, b) => a.relPath.localeCompare(b.relPath))) {
+      children.push({ kind: 'file', name: entry.relPath.split('/').pop(), entry });
+    }
+    return children;
+  };
+  return walk(root, '');
+}
+
+/**
  * Tell whether a picked file is a text file this page can read.
  * @param {{ name?: string, type?: string }} file - picked file.
  * @returns {boolean} true for plain text.
@@ -1810,6 +1979,7 @@ function storedRoutePreference(value) {
 .dta-versionsBtn{flex:none;padding:0 8px}
 .dta-stopBtn{flex:none;padding:0 8px}
 .dta-drawer--versions{width:min(420px,94vw)}
+.dta-drawer--workspace{width:min(468px,94vw)}
 .dta-versionBar{display:flex;align-items:center;gap:8px;padding:0 16px 12px}
 .dta-versionBar .dta-btn{flex:1 1 auto;justify-content:center}
 .dta-versionCurrent{display:flex;flex-direction:column;gap:5px;margin:0 4px 8px;padding:10px 11px;border-radius:var(--dsw-radius-md,8px);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,transparent)}
@@ -1896,6 +2066,45 @@ function storedRoutePreference(value) {
 .dta-fileClear:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}
 .dta-notice{margin:0;padding:8px 12px;border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:12.5px;line-height:18px}
 .dta-notice--error{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent)}
+.dta-ws{display:flex;flex-direction:column;gap:12px}
+.dta-wsHeadIcon{flex:none;color:var(--dsw-alias-brand-primary)}
+.dta-wsTitle{margin:0;font-size:15px;font-weight:600}
+.dta-wsCount{padding:1px 8px;border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:11.5px}
+.dta-wsRootPath{margin:0;color:var(--dsw-alias-label-secondary);font-size:11.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dta-wsOpenRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dta-wsPath,.dta-wsSuffix{padding:6px 10px;border:1px solid var(--dsw-alias-border-secondary,rgba(127,127,127,.35));border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-layer-2);color:inherit;font:inherit;font-size:12.5px}
+.dta-wsPath{flex:1;min-width:240px}
+.dta-wsSuffix{width:96px}
+.dta-wsSettings{display:flex;align-items:center;gap:16px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:12.5px}
+.dta-wsField{display:flex;align-items:center;gap:6px}
+.dta-wsSelect{padding:4px 8px;border:1px solid var(--dsw-alias-border-secondary,rgba(127,127,127,.35));border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-layer-2);color:inherit;font:inherit;font-size:12.5px}
+.dta-wsCheck{cursor:pointer}
+.dta-wsCheck input{margin:0}
+.dta-wsBatch{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dta-wsBatchInfo{color:var(--dsw-alias-label-secondary);font-size:12.5px}
+.dta-wsEmpty{margin:0;color:var(--dsw-alias-label-secondary);font-size:12.5px}
+.dta-wsList{list-style:none;display:flex;flex-direction:column;gap:2px;margin:0;padding:6px;border:1px solid var(--dsw-alias-border-secondary,rgba(127,127,127,.25));border-radius:var(--dsw-radius-md,8px)}
+.dta-wsDir{padding-left:calc(6px + var(--dta-depth,0)*16px)}
+.dta-wsDirToggle{display:flex;align-items:center;gap:6px;width:100%;padding:5px 8px;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+.dta-wsDirToggle:hover{background:var(--dsw-alias-bg-layer-1)}
+.dta-wsChevron{flex:none;transform:rotate(90deg);transition:transform .15s ease;color:var(--dsw-alias-label-secondary)}
+.dta-wsChevron[data-collapsed="true"]{transform:rotate(0deg)}
+.dta-wsDirIcon{flex:none;color:var(--dsw-alias-brand-primary)}
+.dta-wsDirName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.dta-wsDirCount{flex:none;color:var(--dsw-alias-label-secondary);font-size:11px}
+.dta-wsRow{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);padding-left:calc(10px + var(--dta-depth,0)*16px)}
+.dta-wsRow:hover{background:var(--dsw-alias-bg-layer-1)}
+.dta-wsFileIcon{flex:none;color:var(--dsw-alias-label-secondary)}
+.dta-wsName{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.dta-wsName:hover{color:var(--dsw-alias-brand-primary)}
+.dta-wsSize{flex:none;color:var(--dsw-alias-label-secondary);font-size:11.5px}
+.dta-wsRowActions{display:flex;gap:6px;flex:none}
+.dta-wsBanner{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary) 25%,transparent);border-radius:var(--dsw-radius-md,8px);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,transparent);font-size:12.5px}
+.dta-wsBannerTag{flex:none;padding:1px 8px;border-radius:999px;background:var(--dsw-alias-brand-primary);color:#fff;font-size:11px}
+.dta-wsBannerName{font-weight:600}
+.dta-wsBannerPath{color:var(--dsw-alias-label-secondary);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dta-wsBannerActions{margin-left:auto;display:flex;gap:6px;flex:none}
+.dta-wsBtn[data-active="true"]{color:var(--dsw-alias-brand-primary)}
 .dta-list{display:flex;flex-direction:column;gap:12px}
 .dta-seg{display:flex;flex-direction:column;gap:10px;padding:14px;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg,10px);background:var(--dsw-alias-bg-layer-1)}
 .dta-segHead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -1971,6 +2180,8 @@ function storedRoutePreference(value) {
             transMode: TRANS_MODES.includes(storedPrefs.transMode)
               ? storedPrefs.transMode
               : storedPrefs.wholeDoc === false ? 'batch' : 'whole',
+            wsRoot: typeof storedPrefs.wsRoot === 'string' ? storedPrefs.wsRoot : '',
+            wsSettings: readWsSettings(storedPrefs.wsSettings),
           },
         };
       }, []);
@@ -2025,6 +2236,34 @@ function storedRoutePreference(value) {
       // Name of the imported file, kept so the translation can be downloaded
       // under the same name; it is also stored on the document itself.
       const [fileName, setFileName] = React.useState(bootstrap.doc ? bootstrap.doc.fileName : '');
+      // ---- Workspace: a folder on disk whose files can be translated and
+      // ---- proofread one at a time, or in one batch pass.
+      const [wsOpen, setWsOpen] = React.useState(false);
+      const [wsRoot, setWsRoot] = React.useState(bootstrap.prefs.wsRoot);
+      const [wsRootDraft, setWsRootDraft] = React.useState(bootstrap.prefs.wsRoot);
+      const [wsFiles, setWsFiles] = React.useState([]);
+      const [wsSettings, setWsSettings] = React.useState(bootstrap.prefs.wsSettings);
+      const [wsStatuses, setWsStatuses] = React.useState(() => {
+        const stored = readStorage(WORKSPACE_STORAGE, null);
+        return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+      });
+      // Non-null while a batch pass over the file list is running.
+      const [wsBatch, setWsBatch] = React.useState(null);
+      // Collapsed folders of the workspace tree; folders missing from the map
+      // start expanded, so a fresh workspace opens fully unfolded.
+      const [wsCollapsed, setWsCollapsed] = React.useState({});
+      // The workspace file the open document belongs to; null when the
+      // document came from the landing form, a file import, or history.
+      const [wsTarget, setWsTarget] = React.useState(null);
+      const wsBatchRef = React.useRef(null);
+      const wsDirInputRef = React.useRef(null);
+      const wsSaveTimer = React.useRef(null);
+      // The document the last successful translation landed, so the batch
+      // pass can save it without waiting for the state update.
+      const landedDocRef = React.useRef(null);
+      // True when the pass that just failed was stopped by the user, so the
+      // batch loop can tell a stop from a request failure.
+      const passAbortedRef = React.useRef(false);
       const copyTimer = React.useRef(null);
       const fileInputRef = React.useRef(null);
       const docInputRef = React.useRef(null);
@@ -2131,8 +2370,14 @@ function storedRoutePreference(value) {
           fullMode,
           route: route ? { provider: route.provider, model: route.model } : null,
           transMode,
+          wsRoot,
+          wsSettings,
         });
-      }, [sourceLanguage, targetLanguage, view, fullMode, route, transMode]);
+      }, [sourceLanguage, targetLanguage, view, fullMode, route, transMode, wsRoot, wsSettings]);
+
+      React.useEffect(() => {
+        writeStorage(WORKSPACE_STORAGE, wsStatuses);
+      }, [wsStatuses]);
 
       // Escape closes the side drawer, like a native dialog.
       React.useEffect(() => {
@@ -2201,6 +2446,23 @@ function storedRoutePreference(value) {
       React.useEffect(() => () => {
         if (copyTimer.current) clearTimeout(copyTimer.current);
       }, []);
+
+      // Auto-save writes proofread edits back to the workspace file, debounced
+      // so typing a few characters does not produce a write per keystroke.
+      React.useEffect(() => {
+        if (!wsTarget || !wsSettings.autoSave || !doc || status) return undefined;
+        if (wsSaveTimer.current) clearTimeout(wsSaveTimer.current);
+        wsSaveTimer.current = setTimeout(() => {
+          wsSaveTimer.current = null;
+          saveWorkspaceFile(wsTarget.root, wsTarget, wsTarget.plan, null, { quiet: true, mark: 'translated' });
+        }, 900);
+        return () => {
+          if (wsSaveTimer.current) {
+            clearTimeout(wsSaveTimer.current);
+            wsSaveTimer.current = null;
+          }
+        };
+      }, [doc, status, wsTarget, wsSettings.autoSave]);
 
       const collectionKey = view === 'sentences' ? 'sentences' : 'paragraphs';
       const fullTranslation = buildFullTranslation(doc);
@@ -2392,6 +2654,9 @@ function storedRoutePreference(value) {
         };
         setDoc(nextDoc);
         setFileName(nextDoc.fileName);
+        // Remember what landed so the workspace batch pass can save it to
+        // disk without waiting for the state update to propagate.
+        landedDocRef.current = nextDoc;
         // Every successful translation becomes a history entry.
         const entry = makeEntry(nextDoc);
         skipSync.current = entry.id;
@@ -2556,6 +2821,7 @@ function storedRoutePreference(value) {
        */
       async function translateText(rawText, meta = {}) {
         const text = String(rawText ?? '').trim();
+        passAbortedRef.current = false;
         if (!text) {
           setNotice({ kind: 'warn', text: t('noSource') });
           return false;
@@ -2585,6 +2851,7 @@ function storedRoutePreference(value) {
             // Stopping is deliberate: the button vanishing and the progress
             // clearing is feedback enough, so no notice is raised here.
             if (isAborted(error)) {
+              passAbortedRef.current = true;
               setStatus(null);
               return false;
             }
@@ -2605,6 +2872,7 @@ function storedRoutePreference(value) {
             if (landed) return true;
           } catch (error) {
             if (isAborted(error)) {
+              passAbortedRef.current = true;
               setStatus(null);
               return false;
             }
@@ -2682,6 +2950,7 @@ function storedRoutePreference(value) {
             setStatus({ kind: 'translating', done, total: paragraphs.length });
           });
           if (signal.aborted) {
+            passAbortedRef.current = true;
             setStatus(null);
             return false;
           }
@@ -2714,6 +2983,7 @@ function storedRoutePreference(value) {
           };
           setDoc(nextDoc);
           setFileName(nextDoc.fileName);
+          landedDocRef.current = nextDoc;
           // Every successful translation becomes a history entry.
           const entry = makeEntry(nextDoc);
           skipSync.current = entry.id;
@@ -3453,10 +3723,363 @@ function storedRoutePreference(value) {
         setDraft('');
         setFileName('');
         setNotice(null);
+        setWsTarget(null);
         resetSegmentState();
         closeHistory();
         closeVersions();
         writeStorage(DOC_STORAGE, null);
+      }
+
+      // -------------------------------------------------------------------
+      // Workspace: open a folder, translate any file in it, proofread the
+      // translation in the comparison view, and write the result back to
+      // disk. The Host confines every operation to the folder root.
+      // -------------------------------------------------------------------
+
+      /** @param {string} relPath - workspace-relative file path. @returns {string} status mark. */
+      function wsStatusOf(root, relPath) {
+        const bucket = wsStatuses[root];
+        return (bucket && bucket[relPath]) || '';
+      }
+
+      /**
+       * Record (or clear) the translation mark for one file.
+       * @param {string} root - workspace root.
+       * @param {string} relPath - workspace-relative file path.
+       * @param {string} value - '', 'translated', or 'done'.
+       */
+      function setWsStatusFor(root, relPath, value) {
+        setWsStatuses((current) => {
+          const bucket = { ...(current[root] || {}) };
+          if (value) bucket[relPath] = value;
+          else delete bucket[relPath];
+          return { ...current, [root]: bucket };
+        });
+      }
+
+      /**
+       * Map a workspace failure onto a localized message; server codes cover
+       * the common cases, everything else falls back to the generic mapping.
+       * @param {unknown} error - thrown value.
+       * @returns {string} localized message.
+       */
+      function wsDescribeError(error) {
+        const keys = {
+          ROOT_MISSING: 'wsRootMissing',
+          ROOT_NOT_FOLDER: 'wsRootMissing',
+          PATH_ESCAPES: 'wsPathEscape',
+          EXTENSION: 'wsExtUnsupported',
+          TOO_LARGE: 'wsTooLargeFile',
+          FILE_MISSING: 'wsFileMissing',
+          NOT_FILE: 'wsFileMissing',
+          EXISTS: 'wsExists',
+        };
+        const key = error && keys[error.code];
+        return key ? t(key) : describeError(error, t);
+      }
+
+      /**
+       * Compute where a file's translation lands under the current settings.
+       * `.docx` has no writer, so its translation always becomes `.md`.
+       * @param {object} entry - workspace file entry.
+       * @returns {{ relPath: string, overwrite: boolean }} output plan.
+       */
+      function wsPlanOutput(entry) {
+        const outExt = entry.ext === 'docx' ? 'md' : entry.ext;
+        const stem = String(entry.name ?? '').replace(/\.[^.]+$/, '');
+        const slash = entry.relPath.lastIndexOf('/');
+        const dir = slash >= 0 ? `${entry.relPath.slice(0, slash + 1)}` : '';
+        if (wsSettings.output === 'overwrite' && entry.ext !== 'docx') {
+          return { relPath: entry.relPath, overwrite: true };
+        }
+        if (wsSettings.output === 'suffix') {
+          const suffix = wsSettings.suffix || 'zh';
+          return { relPath: `${dir}${stem}.${suffix}.${outExt}`, overwrite: true };
+        }
+        return { relPath: `${dir}${t('wsSubfolderName')}/${stem}.${outExt}`, overwrite: true };
+      }
+
+      /**
+       * Read one workspace file as plain text; `.docx` arrives as base64 and
+       * is unpacked with the same reader the file import uses.
+       * @param {object} entry - workspace file entry.
+       * @returns {Promise<string>} normalized text.
+       */
+      async function wsReadText(entry) {
+        const data = await requestJson('workspace/read', { root: wsRoot, relPath: entry.relPath });
+        if (data.encoding === 'base64') {
+          return normalizeImportedText(await readDocxText(decodeBase64Bytes(data.content)));
+        }
+        return normalizeImportedText(typeof data.content === 'string' ? data.content : '');
+      }
+
+      /**
+       * List the folder and remember it as the workspace root.
+       * @param {string} rootValue - absolute folder path.
+       */
+      async function openWorkspaceRoot(rootValue) {
+        const root = String(rootValue ?? '').trim();
+        if (!root || isWorking) return;
+        try {
+          const data = await requestJson('workspace/list', { root });
+          const resolved = typeof data.root === 'string' && data.root ? data.root : root;
+          setWsRoot(resolved);
+          setWsRootDraft(resolved);
+          setWsFiles(Array.isArray(data.entries) ? data.entries : []);
+          setNotice(null);
+        } catch (error) {
+          setNotice({ kind: 'error', text: format(t('wsListFailed'), { message: wsDescribeError(error) }) });
+        }
+      }
+
+      /** Toggle the workspace view; the file list loads on first open. */
+      function toggleWorkspace() {
+        if (wsOpen) {
+          setWsOpen(false);
+          return;
+        }
+        setWsOpen(true);
+        if (wsRoot && wsFiles.length === 0) openWorkspaceRoot(wsRoot);
+      }
+
+      /**
+       * Handle the pick-folder button. The desktop shell exposes a native
+       * directory dialog over the preload bridge; the hidden webkitdirectory
+       * input is the fallback for shells without it.
+       * @returns {Promise<void>} resolves after the dialog flow settles.
+       */
+      async function handleWsPickButton() {
+        const bridge = typeof window !== 'undefined' ? window.__DSH_DIRECTORY_PICKER__ : null;
+        if (bridge && typeof bridge.pick === 'function') {
+          try {
+            const picked = await bridge.pick();
+            if (typeof picked === 'string' && picked) {
+              setWsRootDraft(picked);
+              openWorkspaceRoot(picked);
+              return;
+            }
+            // `null` means the user canceled the dialog — nothing to do.
+            if (picked === null) return;
+          } catch (error) {
+            // The bridge refused (old shell, unowned frame) — fall through to
+            // the input-based picker below.
+          }
+        }
+        if (wsDirInputRef.current && typeof wsDirInputRef.current.click === 'function') {
+          wsDirInputRef.current.click();
+        }
+      }
+
+      /**
+       * Derive the workspace root from a directory picker's file list. The
+       * desktop shell maps picked files to absolute paths over the preload
+       * bridge (`File.path` is gone since Electron 32); a plain browser does
+       * not, so the user falls back to pasting the path.
+       * @param {object} event - change event from the directory input.
+       */
+      function handleWsPickFolder(event) {
+        const files = event && event.target ? event.target.files : null;
+        if (event && event.target) event.target.value = '';
+        if (!files || files.length === 0) return;
+        const first = files[0];
+        const pathFor = typeof window !== 'undefined' ? window.__DSH_HOST_PATHS__ : null;
+        const absolute = typeof first.path === 'string' && first.path
+          ? first.path
+          : (pathFor && typeof pathFor.pathFor === 'function' ? String(pathFor.pathFor(first) || '') : '');
+        const relative = typeof first.webkitRelativePath === 'string' ? first.webkitRelativePath : '';
+        if (!absolute || !relative) {
+          setNotice({ kind: 'info', text: t('wsPickFallback') });
+          return;
+        }
+        // The relative path starts with the picked folder's own name, and the
+        // absolute path is `<root>/<relative>`; re-attach that first segment.
+        let root;
+        if (absolute.endsWith(relative)) {
+          root = absolute.slice(0, absolute.length - relative.length) + relative.split(/[\\/]/)[0];
+        } else {
+          // Separator mismatch or unexpected shapes: fall back to the file's directory.
+          root = absolute.replace(/[\\/][^\\/]*$/, '');
+        }
+        root = root.replace(/[\\/]+$/, '');
+        openWorkspaceRoot(root);
+      }
+
+      /**
+       * Write the translation of one workspace file back to disk.
+       * @param {string} root - workspace root.
+       * @param {object} entry - workspace file entry (relPath and name).
+       * @param {object} plan - output plan from wsPlanOutput.
+       * @param {object | null} docValue - document to save; null reads the ref.
+       * @param {{ quiet?: boolean, mark?: string }} [options] - quiet skips
+       *   the success notice; mark sets the list badge ('translated' for
+       *   machine-saved output, 'done' after a manual save).
+       * @returns {Promise<boolean>} true when the file was written.
+       */
+      async function saveWorkspaceFile(root, entry, plan, docValue, options = {}) {
+        const source = docValue || landedDocRef.current;
+        const text = source ? buildFullTranslation(source) : '';
+        if (!text.trim()) {
+          if (!options.quiet) setNotice({ kind: 'warn', text: t('wsNothingToSave') });
+          return false;
+        }
+        try {
+          await requestJson('workspace/write', { root, relPath: plan.relPath, content: `${text}\n`, overwrite: true });
+          setWsStatusFor(root, entry.relPath, options.mark === 'translated' ? 'translated' : 'done');
+          if (!options.quiet) {
+            setNotice({ kind: 'info', text: format(t('wsSaved'), { path: plan.relPath }) });
+          }
+          return true;
+        } catch (error) {
+          setNotice({ kind: 'error', text: format(t('wsWriteFailed'), { message: wsDescribeError(error) }) });
+          return false;
+        }
+      }
+
+      /**
+       * Translate one workspace file. On success the document is open in the
+       * comparison view (single mode auto-opens it) and the file is marked
+       * for proofreading; batch mode also saves the raw translation to disk.
+       * @param {object} entry - workspace file entry.
+       * @param {{ autoOpen?: boolean, saveNow?: boolean, quiet?: boolean }} [options] - flow flags.
+       * @returns {Promise<{ ok: boolean, aborted: boolean }>} outcome.
+       */
+      async function translateWorkspaceFile(entry, options = {}) {
+        if (isWorking) return { ok: false, aborted: false };
+        let text;
+        try {
+          text = await wsReadText(entry);
+        } catch (error) {
+          if (isAborted(error)) passAbortedRef.current = true;
+          if (!options.quiet) {
+            setNotice({ kind: 'error', text: format(t('wsReadFailed'), { name: entry.name, message: wsDescribeError(error) }) });
+          }
+          return { ok: false, aborted: isAborted(error) };
+        }
+        if (!text) {
+          if (!options.quiet) setNotice({ kind: 'warn', text: t('noSource') });
+          return { ok: false, aborted: false };
+        }
+        landedDocRef.current = null;
+        const landed = await translateText(text, { fileName: entry.name });
+        if (!landed) return { ok: false, aborted: passAbortedRef.current };
+        const root = wsRoot;
+        const plan = wsPlanOutput(entry);
+        setWsStatusFor(root, entry.relPath, 'translated');
+        if (options.saveNow) {
+          const saved = await saveWorkspaceFile(root, entry, plan, landedDocRef.current, {
+            quiet: Boolean(options.quiet),
+            mark: 'translated',
+          });
+          if (!saved) return { ok: false, aborted: false };
+        }
+        if (options.autoOpen) {
+          setWsTarget({ root, relPath: entry.relPath, name: entry.name, plan });
+          setWsOpen(false);
+        }
+        return { ok: true, aborted: false };
+      }
+
+      /**
+       * Open a translated workspace file for proofreading without running
+       * the model again: the source comes from the file, the translation
+       * from its saved output. An overwrite-mode file was replaced on disk,
+       * so the last history entry for that name is reopened instead.
+       * @param {object} entry - workspace file entry.
+       */
+      async function openWorkspaceProofread(entry) {
+        if (isWorking) return;
+        const plan = wsPlanOutput(entry);
+        if (wsSettings.output === 'overwrite' && plan.overwrite) {
+          const match = [...history].reverse().find((item) => item.doc && item.doc.fileName === entry.name);
+          if (match) {
+            handleOpenEntry(match);
+            setWsTarget({ root: wsRoot, relPath: entry.relPath, name: entry.name, plan });
+            setWsOpen(false);
+            return;
+          }
+          setNotice({ kind: 'warn', text: t('wsNoTranslation') });
+          return;
+        }
+        try {
+          const source = await wsReadText(entry);
+          if (!source) {
+            setNotice({ kind: 'warn', text: t('noSource') });
+            return;
+          }
+          let translation = '';
+          try {
+            const data = await requestJson('workspace/read', { root: wsRoot, relPath: plan.relPath });
+            translation = typeof data.content === 'string' ? data.content : '';
+          } catch (error) {
+            if (Number(error && error.status) !== 404) throw error;
+          }
+          if (!translation.trim()) {
+            setNotice({ kind: 'warn', text: t('wsNoTranslation') });
+            return;
+          }
+          const shape = { sentences: splitSentences(source), paragraphs: splitParagraphs(source) };
+          const parts = translation.trim().split(/\n{2,}/).map((part) => part.trim());
+          while (parts.length < shape.paragraphs.length) parts.push('');
+          applyDocumentPieces(
+            source,
+            { fileName: entry.name },
+            shape,
+            parts.slice(0, shape.paragraphs.length),
+            null,
+          );
+          setWsTarget({ root: wsRoot, relPath: entry.relPath, name: entry.name, plan });
+          setWsOpen(false);
+        } catch (error) {
+          setNotice({ kind: 'error', text: format(t('wsReadFailed'), { name: entry.name, message: wsDescribeError(error) }) });
+        }
+      }
+
+      /** Stop the batch: abort the in-flight file and skip the rest. */
+      function handleWsStopBatch() {
+        const batch = wsBatchRef.current;
+        if (batch) batch.stopped = true;
+        handleStopTranslation();
+      }
+
+      /** Translate every untranslated file in the list, one after another. */
+      async function handleWsTranslateAll() {
+        if (isWorking || wsBatch) return;
+        const root = wsRoot;
+        const pending = wsFiles.filter((entry) => !wsStatusOf(root, entry.relPath));
+        if (pending.length === 0) {
+          setNotice({ kind: 'info', text: t('wsAllTranslated') });
+          return;
+        }
+        const batch = { stopped: false };
+        wsBatchRef.current = batch;
+        setWsBatch({ done: 0, total: pending.length });
+        let failed = 0;
+        for (const entry of pending) {
+          if (batch.stopped) break;
+          const result = await translateWorkspaceFile(entry, { saveNow: true, quiet: true });
+          if (result.aborted || batch.stopped) break;
+          if (!result.ok) failed += 1;
+          setWsBatch((current) => (current ? { ...current, done: current.done + 1 } : current));
+        }
+        wsBatchRef.current = null;
+        setWsBatch(null);
+        if (failed > 0) {
+          setNotice({ kind: 'warn', text: format(t('wsBatchPartial'), { failed }) });
+        }
+      }
+
+      /** Save the open workspace document back to its output file. */
+      async function handleWsSave() {
+        if (!wsTarget || !doc || isWorking) return;
+        await saveWorkspaceFile(wsTarget.root, wsTarget, wsTarget.plan, doc);
+      }
+
+      /** Progress text for the file currently translating inside the workspace. */
+      function wsTranslatingText() {
+        if (!status || status.kind !== 'translating') return '';
+        return status.total
+          ? format(t('translateProgress'), { done: status.done ?? 0, total: status.total })
+          : t('translateWholeBusy');
       }
 
       /**
@@ -3473,6 +4096,7 @@ function storedRoutePreference(value) {
         setSourceLanguage(entry.doc.sourceLanguage);
         setTargetLanguage(entry.doc.targetLanguage);
         setNotice(null);
+        setWsTarget(null);
         resetSegmentState();
         closeHistory();
         closeVersions();
@@ -3682,6 +4306,289 @@ function storedRoutePreference(value) {
       }
 
       /** Render the source input form. */
+      /**
+       * Strip above the comparison view while a workspace file is open: it
+       * names the source file and where its translation saves, with the
+       * manual save button and the way back to the list.
+       * @returns {object | null} banner element.
+       */
+      /** Fold or unfold one folder of the workspace tree. */
+      function toggleWsDir(path) {
+        setWsCollapsed((current) => ({ ...current, [path]: !current[path] }));
+      }
+
+      /**
+       * Folder icon used by the tree and the workspace header.
+       * @param {{ size?: number, className?: string }} [options] - styling.
+       * @returns {object} svg element.
+       */
+      function renderFolderIcon(options = {}) {
+        const size = options.size || 14;
+        return h('svg', {
+          viewBox: '0 0 16 16',
+          width: size,
+          height: size,
+          fill: 'currentColor',
+          stroke: 'none',
+          'aria-hidden': true,
+          className: options.className,
+        },
+          h('path', { d: 'M1.75 3.5A1.5 1.5 0 0 1 3.25 2h3l1.5 2h5A1.5 1.5 0 0 1 14.25 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-9.5a1.5 1.5 0 0 1-1.5-1.5v-9Z' }),
+        );
+      }
+
+      /**
+       * Render the workspace file tree, one flat row list with indentation.
+       * @param {Array<object>} nodes - tree nodes from buildWsTree.
+       * @param {number} depth - nesting depth, drives the left padding.
+       * @returns {Array<object>} row elements.
+       */
+      function renderWsNodes(nodes, depth) {
+        return nodes.flatMap((node) => {
+          if (node.kind === 'dir') {
+            const collapsed = Boolean(wsCollapsed[node.path]);
+            return [
+              h('li', { className: 'dta-wsDir', key: `dir:${node.path}`, style: { '--dta-depth': depth } },
+                h('button', {
+                  type: 'button',
+                  className: 'dta-wsDirToggle',
+                  'aria-expanded': !collapsed,
+                  title: node.path,
+                  onClick: () => toggleWsDir(node.path),
+                },
+                  h('svg', {
+                    viewBox: '0 0 16 16',
+                    width: 12,
+                    height: 12,
+                    fill: 'currentColor',
+                    stroke: 'none',
+                    'aria-hidden': true,
+                    className: 'dta-wsChevron',
+                    'data-collapsed': collapsed ? 'true' : 'false',
+                  },
+                    h('path', { d: 'M6 3.5 11 8l-5 4.5v-9Z' }),
+                  ),
+                  renderFolderIcon({ size: 13, className: 'dta-wsDirIcon' }),
+                  h('span', { className: 'dta-wsDirName' }, node.name),
+                  h('span', { className: 'dta-wsDirCount' }, String(node.count)),
+                ),
+              ),
+              ...(!collapsed ? renderWsNodes(node.children, depth + 1) : []),
+            ];
+          }
+          const entry = node.entry;
+          const state = wsStatusOf(wsRoot, entry.relPath);
+          // One click on the file name is the whole flow: untranslated files
+          // start translating, translated ones reopen for proofreading.
+          const openFile = () => (state
+            ? openWorkspaceProofread(entry)
+            : translateWorkspaceFile(entry, { autoOpen: true }));
+          return [h('li', {
+            className: 'dta-wsRow',
+            key: entry.relPath,
+            style: { '--dta-depth': depth },
+          },
+            renderFolderIcon({ size: 12, className: 'dta-wsFileIcon' }),
+            h('button', {
+              type: 'button',
+              className: 'dta-wsName',
+              title: entry.relPath,
+              onClick: openFile,
+            }, node.name),
+            h('span', { className: 'dta-wsSize' }, wsFormatSize(entry.size)),
+            h('div', { className: 'dta-wsRowActions' },
+              h('button', {
+                type: 'button',
+                className: 'dta-btn dta-btn--sm',
+                disabled: isWorking,
+                onClick: () => translateWorkspaceFile(entry, { autoOpen: true }),
+              }, state ? t('wsRetranslate') : t('wsTranslate')),
+            ),
+          )];
+        });
+      }
+
+      function renderWorkspaceBanner() {
+        if (!wsTarget || !doc) return null;
+        return h('div', { className: 'dta-wsBanner' },
+          h('span', { className: 'dta-wsBannerTag' }, t('workspace')),
+          h('span', { className: 'dta-wsBannerName', title: wsTarget.relPath }, wsTarget.name),
+          h('span', { className: 'dta-wsBannerArrow', 'aria-hidden': true }, '→'),
+          h('span', { className: 'dta-wsBannerPath', title: wsTarget.plan.relPath },
+            `${t('wsBannerTarget')} ${wsTarget.plan.relPath}`),
+          h('div', { className: 'dta-wsBannerActions' },
+            h('button', {
+              type: 'button',
+              className: 'dta-btn dta-btn--sm dta-btn--primary',
+              disabled: isWorking,
+              onClick: handleWsSave,
+            }, t('wsSaveToFile')),
+            h('button', {
+              type: 'button',
+              className: 'dta-btn dta-btn--sm',
+              disabled: isWorking,
+              onClick: () => setWsOpen(true),
+            }, t('wsBackToList')),
+          ),
+        );
+      }
+
+      /** Render the workspace as a collapsible side drawer. */
+      function renderWorkspaceDrawer() {
+        const singleTranslating = Boolean(status && status.kind === 'translating' && !wsBatch);
+        const pendingCount = wsFiles.filter((entry) => !wsStatusOf(wsRoot, entry.relPath)).length;
+        return h('div', { className: 'dta-drawerLayer' },
+          h('div', {
+            className: 'dta-drawerMask',
+            'aria-hidden': true,
+            onClick: () => setWsOpen(false),
+          }),
+          h('aside', {
+            className: 'dta-drawer dta-drawer--workspace',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-label': t('workspace'),
+          },
+            h('div', { className: 'dta-drawerHead' },
+              renderFolderIcon({ size: 15, className: 'dta-wsHeadIcon' }),
+              h('h2', { className: 'dta-drawerTitle' }, t('workspace')),
+              wsFiles.length
+                ? h('span', { className: 'dta-wsCount' }, format(t('wsCount'), { count: wsFiles.length }))
+                : null,
+              wsRoot
+                ? h('button', {
+                  type: 'button',
+                  className: 'dta-btn dta-btn--sm',
+                  disabled: isWorking,
+                  onClick: () => openWorkspaceRoot(wsRoot),
+                }, t('wsRefresh'))
+                : null,
+              h('button', {
+                type: 'button',
+                className: 'dta-drawerClose',
+                title: t('closePanel'),
+                'aria-label': t('closePanel'),
+                onClick: () => setWsOpen(false),
+              }, '×'),
+            ),
+            h('div', { className: 'dta-drawerBody dta-ws' },
+              notice && notice.text
+                ? h('p', { className: cx('dta-notice', notice.kind === 'error' && 'dta-notice--error') }, notice.text)
+                : null,
+              wsRoot
+                ? h('p', { className: 'dta-wsRootPath', title: wsRoot }, wsRoot)
+                : null,
+          h('div', { className: 'dta-wsOpenRow' },
+            h('input', {
+              className: 'dta-wsPath',
+              type: 'text',
+              value: wsRootDraft,
+              placeholder: t('wsRootPlaceholder'),
+              spellCheck: false,
+              'aria-label': t('workspaceHint'),
+              disabled: isWorking,
+              onChange: (event) => setWsRootDraft(event.target.value),
+              onKeyDown: (event) => {
+                if (event.key === 'Enter') openWorkspaceRoot(wsRootDraft);
+              },
+            }),
+            h('button', {
+              type: 'button',
+              className: 'dta-btn',
+              disabled: isWorking,
+              onClick: () => openWorkspaceRoot(wsRootDraft),
+            }, t('wsOpen')),
+            h('button', {
+              type: 'button',
+              className: 'dta-btn',
+              disabled: isWorking,
+              title: t('wsPickFolder'),
+              onClick: handleWsPickButton,
+            }, t('wsPickFolder')),
+            h('input', {
+              ref: wsDirInputRef,
+              type: 'file',
+              webkitdirectory: 'true',
+              multiple: true,
+              style: { display: 'none' },
+              onChange: handleWsPickFolder,
+            }),
+          ),
+          wsRoot
+            ? h('div', { className: 'dta-wsSettings' },
+              h('label', { className: 'dta-wsField' },
+                h('span', null, t('wsOutputLabel')),
+                h('select', {
+                  className: 'dta-wsSelect',
+                  value: wsSettings.output,
+                  disabled: isWorking,
+                  onChange: (event) => setWsSettings((current) => ({ ...current, output: event.target.value })),
+                },
+                  h('option', { value: 'subfolder' }, t('wsOutputSubfolder')),
+                  h('option', { value: 'suffix' }, t('wsOutputSuffix')),
+                  h('option', { value: 'overwrite' }, t('wsOutputOverwrite')),
+                ),
+              ),
+              wsSettings.output === 'suffix'
+                ? h('label', { className: 'dta-wsField' },
+                  h('span', null, t('wsSuffixLabel')),
+                  h('input', {
+                    className: 'dta-wsSuffix',
+                    type: 'text',
+                    value: wsSettings.suffix,
+                    maxLength: 24,
+                    spellCheck: false,
+                    disabled: isWorking,
+                    onChange: (event) => setWsSettings((current) => ({ ...current, suffix: event.target.value })),
+                  }),
+                )
+                : null,
+              h('label', { className: 'dta-wsField dta-wsCheck' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: wsSettings.autoSave,
+                  disabled: isWorking,
+                  onChange: (event) => setWsSettings((current) => ({ ...current, autoSave: event.target.checked })),
+                }),
+                h('span', null, t('wsAutoSave')),
+              ),
+            )
+            : null,
+          wsRoot && wsFiles.length
+            ? h('div', { className: 'dta-wsBatch' },
+              h('button', {
+                type: 'button',
+                className: 'dta-btn',
+                title: t('wsTranslateAllHint'),
+                disabled: isWorking || Boolean(wsBatch) || pendingCount === 0,
+                onClick: handleWsTranslateAll,
+              }, t('wsTranslateAll')),
+              wsBatch
+                ? h('span', { className: 'dta-wsBatchInfo' },
+                  format(t('wsBatchProgress'), { done: wsBatch.done, total: wsBatch.total }))
+                : h('span', { className: 'dta-wsBatchInfo' },
+                  pendingCount ? format(t('wsPendingCount'), { count: pendingCount }) : t('wsAllTranslated')),
+              singleTranslating
+                ? h('span', { className: 'dta-wsBatchInfo' }, wsTranslatingText())
+                : null,
+              wsBatch || singleTranslating
+                ? renderStopButton(wsBatch ? handleWsStopBatch : handleStopTranslation)
+                : null,
+            )
+            : null,
+          wsRoot && wsFiles.length === 0
+            ? h('p', { className: 'dta-wsEmpty' }, t('wsEmpty'))
+            : null,
+          wsFiles.length
+            ? h('ul', { className: 'dta-wsList', 'aria-label': t('wsTreeLabel') },
+              renderWsNodes(buildWsTree(wsFiles), 0),
+            )
+            : null,
+          ),
+          ),
+        );
+      }
+
       function renderLanding() {
         return h('section', { className: 'dta-card' },
           h('div', { className: 'dta-row' },
@@ -4587,6 +5494,31 @@ function storedRoutePreference(value) {
                 ),
                 h('span', null, t('newTranslation')),
               ) : null,
+              // The workspace toggle lives with the document-level actions:
+              // it replaces the page body, not the current document.
+              h('button', {
+                type: 'button',
+                className: 'dta-btn dta-btn--sm dta-btn--ghost dta-wsBtn',
+                'data-active': wsOpen ? 'true' : 'false',
+                'aria-pressed': wsOpen,
+                title: t('workspaceHint'),
+                onClick: toggleWorkspace,
+              },
+                h('svg', {
+                  viewBox: '0 0 16 16',
+                  width: 12,
+                  height: 12,
+                  fill: 'none',
+                  stroke: 'currentColor',
+                  'stroke-width': 1.6,
+                  'stroke-linecap': 'round',
+                  'stroke-linejoin': 'round',
+                  'aria-hidden': true,
+                },
+                  h('path', { d: 'M1.9 4.4a1.2 1.2 0 0 1 1.2-1.2h2.8l1.5 1.6h5.5a1.2 1.2 0 0 1 1.2 1.2v6a1.2 1.2 0 0 1-1.2 1.2H3.1a1.2 1.2 0 0 1-1.2-1.2z' }),
+                ),
+                h('span', null, t('workspace')),
+              ),
               // Revisions describe the open document's own text, so the entry
               // sits with the document actions rather than in the toolbar.
               doc ? h('button', {
@@ -4658,7 +5590,10 @@ function storedRoutePreference(value) {
           notice && notice.text
             ? h('p', { className: cx('dta-notice', notice.kind === 'error' && 'dta-notice--error') }, notice.text)
             : null,
-          doc ? renderDocument() : renderLanding(),
+          h(React.Fragment, null,
+            wsTarget && doc ? renderWorkspaceBanner() : null,
+            doc ? renderDocument() : renderLanding(),
+          ),
           h('footer', { className: 'dta-footer' },
             h('span', null, t('saveHint')),
             h('span', null, t('footerHint')),
@@ -4666,6 +5601,7 @@ function storedRoutePreference(value) {
         ),
         historyOpen ? renderHistoryDrawer() : null,
         versionsOpen ? renderVersionsDrawer() : null,
+        wsOpen ? renderWorkspaceDrawer() : null,
       );
     }
 

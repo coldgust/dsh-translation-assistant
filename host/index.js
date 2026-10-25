@@ -12,10 +12,13 @@
  */
 
 import { TranslationEngine } from './engine.js';
+import { createWorkspaceService } from './workspace.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 const API_PREFIX = '/dsh-translation/api';
 /** Build marker surfaced by the health endpoint; bumped when Host behavior changes. */
-const HOST_REVISION = '7';
+const HOST_REVISION = '8';
 const MAX_BODY_BYTES = 24 * 1024 * 1024;
 const MAX_SEGMENTS = 400;
 const MAX_SEGMENT_CHARS = 20_000;
@@ -540,6 +543,9 @@ function statusForError(error) {
  * @returns {(request: import('node:http').IncomingMessage, response: import('node:http').ServerResponse) => Promise<void>} handler.
  */
 function createHandler(ctx, engine, settings, catalog) {
+  // One service per handler is fine: it holds no state beyond the injected
+  // filesystem, and every call re-validates its paths.
+  const workspace = createWorkspaceService(fs, path);
   return async function handle(request, response) {
     let url;
     try {
@@ -582,7 +588,7 @@ function createHandler(ctx, engine, settings, catalog) {
           })),
           modelFailures: failures,
           targetLanguage: settings.targetLanguage,
-          features: ['translate', 'retranslate', 'score', 'score-document', 'ocr', 'models'],
+          features: ['translate', 'retranslate', 'score', 'score-document', 'ocr', 'models', 'workspace'],
         });
         return;
       }
@@ -594,7 +600,10 @@ function createHandler(ctx, engine, settings, catalog) {
         && pathname !== `${API_PREFIX}/retranslate`
         && pathname !== `${API_PREFIX}/score`
         && pathname !== `${API_PREFIX}/score-document`
-        && pathname !== `${API_PREFIX}/ocr`) {
+        && pathname !== `${API_PREFIX}/ocr`
+        && pathname !== `${API_PREFIX}/workspace/list`
+        && pathname !== `${API_PREFIX}/workspace/read`
+        && pathname !== `${API_PREFIX}/workspace/write`) {
         sendJson(response, 404, { error: 'Unknown endpoint.' });
         return;
       }
@@ -612,6 +621,21 @@ function createHandler(ctx, engine, settings, catalog) {
         }
       }
       const body = await readJsonBody(request);
+      // Workspace endpoints never touch the model, so they short-circuit
+      // before any catalog discovery. The service confines every operation to
+      // the folder the page names as the root.
+      if (pathname === `${API_PREFIX}/workspace/list`) {
+        sendJson(response, 200, await workspace.list(body.root));
+        return;
+      }
+      if (pathname === `${API_PREFIX}/workspace/read`) {
+        sendJson(response, 200, await workspace.read(body.root, body.relPath));
+        return;
+      }
+      if (pathname === `${API_PREFIX}/workspace/write`) {
+        sendJson(response, 200, await workspace.write(body.root, body.relPath, body.content, body.overwrite === true));
+        return;
+      }
       // Only pay for catalog discovery when the caller actually overrides the
       // model; the common path keeps talking to the configured route.
       const route = body.route === undefined || body.route === null

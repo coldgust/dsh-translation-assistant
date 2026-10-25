@@ -4,6 +4,10 @@ import { Readable } from 'node:stream';
 
 import { apply } from '../host/index.js';
 
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 // Mirror the Host's length caps (they are not exported).
 const MAX_SEGMENT_CHARS = 20_000;
 const MAX_DOCUMENT_TOTAL_CHARS = 120_000;
@@ -164,10 +168,11 @@ test('health endpoint reports the resolved model', async () => {
   const response = await call(handler, { method: 'GET', path: '/dsh-translation/api/health' });
   assert.equal(response.status, 200);
   assert.equal(response.json.ok, true);
-  assert.equal(response.json.revision, '7');
+  assert.equal(response.json.revision, '8');
   assert.ok(response.json.features.includes('ocr'));
   assert.ok(response.json.features.includes('score-document'));
   assert.ok(response.json.features.includes('models'));
+  assert.ok(response.json.features.includes('workspace'));
   assert.equal(response.json.model, 'deepseek-account/deepseek-flash');
   // The route in use is always offered, even when nothing else is discoverable.
   assert.deepEqual(response.json.models, [{ provider: 'deepseek-account', model: 'deepseek-flash' }]);
@@ -536,4 +541,101 @@ test('the Agent tool requires a translation for scoring', async () => {
     () => tools[0].execute({ action: 'score', text: 'Hello' }, { signal: new AbortController().signal }),
     /translation/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// Workspace endpoints: real files in a temporary directory.
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a temporary workspace folder with a few files.
+ * @returns {Promise<{ root: string, cleanup: () => Promise<void> }>} fixture.
+ */
+async function makeWorkspace() {
+  const root = await mkdtemp(path.join(tmpdir(), 'dsh-ws-'));
+  await mkdir(path.join(root, 'sub'), { recursive: true });
+  await writeFile(path.join(root, 'a.md'), '# Hello\n\nWorld');
+  await writeFile(path.join(root, 'notes.txt'), 'plain');
+  await writeFile(path.join(root, 'sub', 'b.html'), '<p>hi</p>');
+  await writeFile(path.join(root, 'skip.png'), 'not text');
+  await writeFile(path.join(root, '.hidden.md'), 'skip hidden');
+  return { root, cleanup: () => rm(root, { recursive: true, force: true }) };
+}
+
+test('workspace/list walks the folder and filters by extension', async () => {
+  const { handler } = createHarness();
+  const ws = await makeWorkspace();
+  try {
+    const response = await call(handler, { path: '/dsh-translation/api/workspace/list', body: { root: ws.root } });
+    assert.equal(response.status, 200);
+    assert.equal(response.json.root, ws.root);
+    assert.deepEqual(response.json.entries.map((entry) => entry.relPath), ['a.md', 'notes.txt', 'sub/b.html']);
+    assert.equal(response.json.entries[0].ext, 'md');
+    assert.equal(typeof response.json.entries[0].size, 'number');
+  } finally {
+    await ws.cleanup();
+  }
+});
+
+test('workspace/list rejects a missing or non-folder root', async () => {
+  const { handler } = createHarness();
+  const missing = await call(handler, { path: '/dsh-translation/api/workspace/list', body: { root: '/definitely/not/here' } });
+  assert.equal(missing.status, 400);
+  assert.equal(missing.json.error, 'The workspace folder does not exist.');
+  const file = await call(handler, { path: '/dsh-translation/api/workspace/list', body: { root: '/etc/hostname' } });
+  assert.equal(file.status, 400);
+});
+
+test('workspace/read returns text and refuses disallowed types and escapes', async () => {
+  const { handler } = createHarness();
+  const ws = await makeWorkspace();
+  try {
+    const ok = await call(handler, { path: '/dsh-translation/api/workspace/read', body: { root: ws.root, relPath: 'a.md' } });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.json.content, '# Hello\n\nWorld');
+    assert.equal(ok.json.encoding, 'text');
+    assert.equal(ok.json.name, 'a.md');
+    const png = await call(handler, { path: '/dsh-translation/api/workspace/read', body: { root: ws.root, relPath: 'skip.png' } });
+    assert.equal(png.status, 400);
+    const escape = await call(handler, { path: '/dsh-translation/api/workspace/read', body: { root: ws.root, relPath: '../outside.txt' } });
+    assert.equal(escape.status, 400);
+    const missing = await call(handler, { path: '/dsh-translation/api/workspace/read', body: { root: ws.root, relPath: 'nope.md' } });
+    assert.equal(missing.status, 404);
+  } finally {
+    await ws.cleanup();
+  }
+});
+
+test('workspace/write creates files, refuses overwrite unless asked', async () => {
+  const { handler } = createHarness();
+  const ws = await makeWorkspace();
+  try {
+    const fresh = await call(handler, {
+      path: '/dsh-translation/api/workspace/write',
+      body: { root: ws.root, relPath: 'sub/译文.md', content: '你好' },
+    });
+    assert.equal(fresh.status, 200);
+    assert.equal(await readFile(path.join(ws.root, 'sub', '译文.md'), 'utf8'), '你好');
+
+    const clash = await call(handler, {
+      path: '/dsh-translation/api/workspace/write',
+      body: { root: ws.root, relPath: 'sub/译文.md', content: 'again' },
+    });
+    assert.equal(clash.status, 409);
+
+    const forced = await call(handler, {
+      path: '/dsh-translation/api/workspace/write',
+      body: { root: ws.root, relPath: 'sub/译文.md', content: 'second pass', overwrite: true },
+    });
+    assert.equal(forced.status, 200);
+    assert.equal(await readFile(path.join(ws.root, 'sub', '译文.md'), 'utf8'), 'second pass');
+
+    const binary = await call(handler, {
+      path: '/dsh-translation/api/workspace/write',
+      body: { root: ws.root, relPath: 'out.docx', content: 'nope' },
+    });
+    assert.equal(binary.status, 400);
+  } finally {
+    await ws.cleanup();
+  }
 });

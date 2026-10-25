@@ -49,7 +49,7 @@ If you prefer files or want to script the setup, edit the profile's `package.jso
     }
   },
   "dependencies": {
-    "dsh-translation-assistant": "^1.16.4"
+    "dsh-translation-assistant": "^1.17.2"
   }
 }
 ```
@@ -92,6 +92,15 @@ Then run `pnpm install` in that directory and restart Harness. Keep the profile'
 
 - **Files** — drop or pick `.txt`, `.md`, `.log`, `.html`, `.htm`, or `.docx`. Word files are unpacked in the browser (no library, and the original never leaves the machine); HTML loses scripts, styles, and the head first, so only visible prose reaches the model.
 - **Images** — paste a screenshot or pick one; it is downscaled to a 2048 px long edge, sent as JPEG, transcribed, and translated.
+
+### Workspace
+
+- **Open a folder** — the header `Workspace` button opens a side drawer that loads a folder by path (pasted in, or picked with the native folder dialog of the desktop shell; plain browsers fall back to a directory input). The Host lists the translatable files inside (`.txt`, `.md`, `.log`, `.html`, `.htm`, `.xhtml`, plus read-only `.docx`) and confines every read and write to that root. The drawer never covers what you are proofreading.
+- **Pick any file, translate, proofread** — the tree folds and unfolds by folder; a single click on a file name gets to work: untranslated files start translating (same mode, model, and stop button), translated ones reopen for proofreading. `Save to file` writes the proofread translation back to disk.
+- **Output** — three settings: save into a `translated/` subfolder (default), save a sibling copy with a suffix, or overwrite the original. `.docx` has no writer here, so its translation is always saved as `.md`. Proofread edits can auto-save (debounced) or wait for the save button.
+- **Batch** — `Translate all` walks the pending files in order and saves each machine translation; a stop ends the run after the file in flight. Clicking those files again loads the saved translation without calling the model again.
+
+![The workspace drawer: the folder tree on the side, output settings, and batch translation](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/workspace-drawer.png)
 
 ### Review and refine
 
@@ -207,9 +216,10 @@ History, edits, and preferences never leave the browser; only the text being tra
 This directory is the installed bundle (the profile links it), so `client.js` is hot-swapped into the open page; Host changes need a Harness restart.
 
 ```bash
-# 111 unit/integration tests: engine (translation/retranslation/scoring/OCR),
-# the HTTP handler, model-catalog discovery and route overrides, and the page
-# rendered through a minimal React harness (no browser needed).
+# 121 unit/integration tests: engine (translation/retranslation/scoring/OCR),
+# the HTTP handler, model-catalog discovery and route overrides, the workspace
+# file endpoints, and the page rendered through a minimal React harness (no
+# browser needed).
 node --test 'test/*.test.mjs'
 ```
 

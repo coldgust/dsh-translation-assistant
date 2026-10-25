@@ -1,7 +1,7 @@
 {
   "name": "dsh-translation-assistant",
-  "version": "1.16.4",
-  "description": "A DeepSeek Harness translation workspace: source and translation side by side by sentence or paragraph, .txt/.md/.html/.docx import with downloadable output, per-request model switching, a header stop button for running AI passes, AI retranslation and scoring, image transcription, and a searchable on-device history with revisions.",
+  "version": "1.17.2",
+  "description": "A DeepSeek Harness translation workspace: source and translation side by side by sentence or paragraph, .txt/.md/.html/.docx import with downloadable output, a disk-backed workspace folder to translate and proofread files in place (single or batch), per-request model switching, AI retranslation and scoring, image transcription, and a searchable on-device history with revisions.",
   "license": "Apache-2.0",
   "author": "coldgust",
   "type": "module",

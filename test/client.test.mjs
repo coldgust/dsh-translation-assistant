@@ -281,7 +281,9 @@ function createPage(options = {}) {
     return handlers[action](payload, signal);
   };
   const fetchImpl = async (url, init = {}) => {
-    const action = String(url).split('/').pop();
+    // Workspace endpoints nest under /workspace/, so the action is everything
+    // after the /api/ prefix, not just the last path segment.
+    const action = String(url).replace(/^.*\/api\//, '');
     const body = init.body ? JSON.parse(init.body) : undefined;
     fetchLog.push({ action, body });
     if (!handlers[action]) throw new Error(`Unexpected fetch: ${url}`);
@@ -996,6 +998,240 @@ test('a single segment retranslate can be stopped beside its own button', async 
   // The segment is idle again with its translation untouched.
   assert.ok(page.findButton('AI 重译'), 'the segment button returns to its label');
   assert.match(page.text(), /段落甲/);
+});
+
+test('the workspace translates a picked file and saves the proofread copy', async () => {
+  const writes = [];
+  const files = new Map();
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      'workspace/list': (body) => ({
+        root: body.root,
+        entries: [{ relPath: 'intro.md', name: 'intro.md', ext: 'md', size: 14, mtimeMs: 1 }],
+      }),
+      'workspace/read': (body) => ({
+        content: body.relPath === 'intro.md' ? 'Hello.\n\nWorld.' : (files.get(body.relPath) ?? ''),
+        encoding: 'text',
+        name: body.relPath,
+        ext: 'md',
+        size: 14,
+      }),
+      'workspace/write': (body) => {
+        files.set(body.relPath, body.content);
+        writes.push(body);
+        return { relPath: body.relPath, bytes: body.content.length };
+      },
+      translate: (body) => ({
+        sentences: body.sentences.map((_item, index) => `S${index + 1}`),
+        paragraphs: body.paragraphs.map((_item, index) => `P${index + 1}`),
+        model: 'm',
+      }),
+    },
+  });
+  await page.flush();
+  await page.click(page.t('workspace'));
+  const pathInput = page.findInput((node) => node.props.placeholder === page.t('wsRootPlaceholder'));
+  assert.ok(pathInput, 'the workspace path input must exist');
+  pathInput.props.onChange({ target: { value: '/ws/docs' } });
+  await page.flush();
+  await page.click(page.t('wsOpen'));
+  await page.flush();
+  assert.match(page.text(), /intro\.md/);
+  // The common flow: a single click on the file name starts translating an
+  // untranslated file — no separate button needed.
+  await page.click('intro.md');
+  await page.flush();
+  assert.match(page.text(), /P1译|P1/);
+  assert.ok(page.text().includes(page.t('wsSaveToFile')));
+  const translateCalls = page.fetchLog.filter((entry) => entry.action === 'translate');
+  assert.ok(translateCalls.length >= 1, 'the file text went through the normal translation pass');
+  // Default output: a copy inside the subfolder, the original untouched.
+  await page.click(page.t('wsSaveToFile'));
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].relPath, `\u8bd1\u6587/intro.md`);
+  assert.equal(writes[0].overwrite, true);
+  assert.match(page.text(), /\u5df2\u4fdd\u5b58\u5230 \u8bd1\u6587\/intro\.md\u3002/);
+  // Back to the list; the state is internal — the row now offers a retranslate
+  // pass instead of a fresh translate, and reopens without the model.
+  await page.click(page.t('wsBackToList'));
+  await page.flush();
+  assert.ok(page.findButton(page.t('wsRetranslate')), 'a translated file offers a retranslate pass');
+  const translateCount = page.fetchLog.filter((entry) => entry.action === 'translate').length;
+  // Clicking the file name itself reopens the proofread view — no separate button.
+  await page.click('intro.md');
+  await page.flush();
+  assert.match(page.text(), /P1译|P1/, 'the saved translation is loaded back');
+  assert.equal(
+    page.fetchLog.filter((entry) => entry.action === 'translate').length,
+    translateCount,
+    'reopening a proofread file must not retranslate',
+  );
+});
+
+test('translate all runs through the pending files and writes each copy', async () => {
+  const writes = [];
+  const files = new Map();
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      'workspace/list': (body) => ({
+        root: body.root,
+        entries: [
+          { relPath: 'a.md', name: 'a.md', ext: 'md', size: 5, mtimeMs: 1 },
+          { relPath: 'b.txt', name: 'b.txt', ext: 'txt', size: 6, mtimeMs: 2 },
+        ],
+      }),
+      'workspace/read': (body) => ({
+        content: ['a.md', 'b.txt'].includes(body.relPath)
+          ? `Content of ${body.relPath}.\n\nSecond.`
+          : (files.get(body.relPath) ?? ''),
+        encoding: 'text',
+        name: body.relPath,
+        ext: 'md',
+        size: 20,
+      }),
+      'workspace/write': (body) => {
+        files.set(body.relPath, body.content);
+        writes.push(body);
+        return { relPath: body.relPath };
+      },
+      translate: (body) => ({
+        sentences: body.sentences.map((_item, index) => `S${index + 1}`),
+        paragraphs: body.paragraphs.map((_item, index) => `P${index + 1}`),
+        model: 'm',
+      }),
+    },
+  });
+  await page.flush();
+  await page.click(page.t('workspace'));
+  const pathInput = page.findInput((node) => node.props.placeholder === page.t('wsRootPlaceholder'));
+  pathInput.props.onChange({ target: { value: '/ws' } });
+  await page.flush();
+  await page.click(page.t('wsOpen'));
+  await page.flush();
+  assert.match(page.text(), /\u5f85\u7ffb\u8bd1 2 \u4e2a/);
+  await page.click(page.t('wsTranslateAll'));
+  await page.flush();
+  const paths = writes.map((entry) => entry.relPath).sort();
+  assert.deepEqual(paths, ['\u8bd1\u6587/a.md', '\u8bd1\u6587/b.txt']);
+  // Batch output is machine-saved: every row now offers a retranslate pass.
+  assert.equal(page.fetchLog.filter((entry) => entry.action === 'workspace/write').length, 2);
+  assert.ok(page.findButton(page.t('wsRetranslate')));
+});
+
+test('the workspace list renders as a collapsible directory tree', async () => {
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      'workspace/list': (body) => ({
+        root: body.root,
+        entries: [
+          { relPath: 'top.md', name: 'top.md', ext: 'md', size: 10, mtimeMs: 1 },
+          { relPath: 'sub/nested.md', name: 'nested.md', ext: 'md', size: 12, mtimeMs: 2 },
+          { relPath: 'sub/deep/inner.txt', name: 'inner.txt', ext: 'txt', size: 6, mtimeMs: 3 },
+        ],
+      }),
+    },
+  });
+  await page.flush();
+  await page.click(page.t('workspace'));
+  const pathInput = page.findInput((node) => node.props.placeholder === page.t('wsRootPlaceholder'));
+  pathInput.props.onChange({ target: { value: '/ws/tree' } });
+  await page.flush();
+  await page.click(page.t('wsOpen'));
+  await page.flush();
+  // Folders render as collapsible rows with their nested file counts.
+  assert.ok(page.findButton('sub2'), 'the sub folder row shows a count of two files');
+  assert.match(page.text(), /nested\.md/);
+  assert.match(page.text(), /inner\.txt/);
+  // Collapsing hides nested rows but keeps sibling files visible.
+  await page.click('sub2');
+  assert.doesNotMatch(page.text(), /nested\.md/);
+  assert.match(page.text(), /top\.md/);
+  // Expanding again brings the whole subtree back.
+  await page.click('sub2');
+  assert.match(page.text(), /nested\.md/);
+  assert.match(page.text(), /inner\.txt/);
+});
+
+test('the folder picker derives the workspace root including the folder name', async () => {
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      'workspace/list': (body) => ({ root: body.root, entries: [] }),
+    },
+  });
+  await page.flush();
+  await page.click(page.t('workspace'));
+  // A picked file sits at /Users/me/docs/notes/a.md and its relative path
+  // starts with the picked folder's own name; the root must keep that name.
+  const picker = page.findInput((node) => node.props.webkitdirectory === 'true');
+  assert.ok(picker, 'the hidden directory picker exists');
+  picker.props.onChange({
+    target: {
+      value: '',
+      files: [{ path: '/Users/me/docs/notes/a.md', webkitRelativePath: 'notes/a.md' }],
+    },
+  });
+  await page.flush();
+  const listCall = page.fetchLog.find((entry) => entry.action === 'workspace/list');
+  assert.ok(listCall, 'the folder pick opened the workspace');
+  assert.equal(listCall.body.root, '/Users/me/docs/notes');
+});
+
+test('the pick button uses the desktop directory bridge when present', async () => {
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      'workspace/list': (body) => ({ root: body.root, entries: [] }),
+    },
+  });
+  globalThis.window.__DSH_DIRECTORY_PICKER__ = { pick: async () => '/picked/projects' };
+  try {
+    await page.flush();
+    await page.click(page.t('workspace'));
+    await page.click(page.t('wsPickFolder'));
+    await page.flush();
+    const listCall = page.fetchLog.find((entry) => entry.action === 'workspace/list');
+    assert.ok(listCall, 'the native dialog result opened the workspace');
+    assert.equal(listCall.body.root, '/picked/projects');
+    assert.equal(
+      page.findInput((node) => node.props.value === '/picked/projects') !== undefined
+        || page.text().includes('/picked/projects'),
+      true,
+      'the path input mirrors the picked folder',
+    );
+  } finally {
+    delete globalThis.window.__DSH_DIRECTORY_PICKER__;
+  }
+});
+
+test('the directory input maps picked files through the host path bridge', async () => {
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      'workspace/list': (body) => ({ root: body.root, entries: [] }),
+    },
+  });
+  globalThis.window.__DSH_HOST_PATHS__ = { pathFor: () => '/Users/me/docs/notes/a.md' };
+  try {
+    await page.flush();
+    await page.click(page.t('workspace'));
+    const picker = page.findInput((node) => node.props.webkitdirectory === 'true');
+    picker.props.onChange({
+      target: {
+        value: '',
+        files: [{ webkitRelativePath: 'notes/a.md' }],
+      },
+    });
+    await page.flush();
+    const listCall = page.fetchLog.find((entry) => entry.action === 'workspace/list');
+    assert.ok(listCall, 'the bridged absolute path opened the workspace');
+    assert.equal(listCall.body.root, '/Users/me/docs/notes');
+  } finally {
+    delete globalThis.window.__DSH_HOST_PATHS__;
+  }
 });
 
 test('the sentence view switches to sentence segments', async () => {
