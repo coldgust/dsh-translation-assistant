@@ -15,8 +15,9 @@ const TRANSLATE_SYSTEM = [
 ].join(' ');
 
 const RETRANSLATE_SYSTEM = [
-  'You are a professional translator revising exactly one sentence or paragraph.',
+  'You are a professional translator revising one sentence, paragraph, or document.',
   'Produce the best possible translation that follows every instruction from the user.',
+  'When revising a whole document, keep its paragraph structure exactly.',
   'Return only the translation text itself.',
 ].join(' ');
 
@@ -198,22 +199,74 @@ function singleTranslatePrompt(source, kind, targetLanguage, sourceLanguage) {
 }
 
 /**
- * Prompt for retranslating one segment, optionally with a user instruction.
+ * Prompt asking for the translation of a whole document as raw text, keeping
+ * its paragraph structure so the reply can be split back onto segments.
+ * @param {string} source - full document text.
+ * @param {string} targetLanguage - target language name.
+ * @param {string | undefined} sourceLanguage - source language name.
+ * @returns {string} user prompt.
+ */
+function documentTranslatePrompt(source, targetLanguage, sourceLanguage) {
+  return [
+    `Translate the following document into ${targetLanguage}.`,
+    languageLine(targetLanguage, sourceLanguage),
+    'The document consists of paragraphs separated by blank lines.',
+    'Return the translation with exactly the same paragraphs, also separated by blank lines; do not merge or split paragraphs.',
+    'Preserve meaning, tone, terminology, numbers, and formatting.',
+    'Return ONLY the translation text: no quotation marks, no numbering, no commentary.',
+    '',
+    'Document:',
+    source,
+  ].join('\n');
+}
+
+/**
+ * Prompt asking for a whole-document translation as a JSON array aligned with
+ * the input paragraphs. The structured reply can be validated item for item,
+ * so paragraph alignment does not depend on the model reproducing a layout.
+ * @param {readonly string[]} paragraphs - source paragraphs in order.
+ * @param {string} targetLanguage - target language name.
+ * @param {string | undefined} sourceLanguage - source language name.
+ * @returns {string} user prompt.
+ */
+function documentBatchPrompt(paragraphs, targetLanguage, sourceLanguage) {
+  return [
+    `Translate the following document into ${targetLanguage}.`,
+    languageLine(targetLanguage, sourceLanguage),
+    `The JSON array below lists all ${paragraphs.length} paragraphs of the document, in order.`,
+    'Translate the document as a whole so the wording stays coherent across paragraphs.',
+    `Return ONLY a JSON array of strings with exactly ${paragraphs.length} translations in the same order; do not merge or split paragraphs.`,
+    'Preserve meaning, tone, terminology, numbers, and formatting.',
+    '',
+    'JSON array:',
+    JSON.stringify(paragraphs, null, 2),
+  ].join('\n');
+}
+
+/**
+ * Prompt for retranslating one segment or a whole document, optionally with a
+ * user instruction.
  * @param {object} input - retranslation input.
- * @param {string} input.source - source segment.
+ * @param {string} input.source - source segment or document.
  * @param {string} [input.translation] - current translation used as reference.
  * @param {string} [input.extraPrompt] - user instruction.
- * @param {'sentence' | 'paragraph'} input.kind - segment kind.
+ * @param {'sentence' | 'paragraph' | 'document'} input.kind - unit kind.
  * @param {string} input.targetLanguage - target language name.
  * @param {string} [input.sourceLanguage] - source language name.
  * @returns {string} user prompt.
  */
 function retranslatePrompt(input) {
-  const label = input.kind === 'paragraph' ? 'paragraph' : 'sentence';
+  const label = input.kind === 'paragraph'
+    ? 'paragraph'
+    : input.kind === 'document' ? 'document' : 'sentence';
   const lines = [
     `Produce a new, improved translation of the following ${label} into ${input.targetLanguage}.`,
     languageLine(input.targetLanguage, input.sourceLanguage),
   ];
+  if (input.kind === 'document') {
+    lines.push('The document consists of paragraphs separated by blank lines.');
+    lines.push('Return the revised translation with exactly the same paragraphs, also separated by blank lines; do not merge or split paragraphs.');
+  }
   if (input.extraPrompt && input.extraPrompt.trim()) {
     lines.push(`User instruction that MUST be followed: ${input.extraPrompt.trim()}`);
   }
@@ -563,6 +616,74 @@ export class TranslationEngine {
   }
 
   /**
+   * Translate a whole document in one call, letting the model see the full
+   * context. With `paragraphs` the request rides the JSON-array protocol and
+   * the reply is a validated array aligned with the input, falling back to
+   * per-paragraph calls when the model does not line up. With a legacy
+   * `source` string the reply keeps the paragraph structure and alignment is
+   * the caller's job.
+   * @param {object} request - document translation request.
+   * @param {readonly string[]} [request.paragraphs] - source paragraphs in order.
+   * @param {string} [request.source] - full document text (legacy form).
+   * @param {string} request.targetLanguage - target language name.
+   * @param {string} [request.sourceLanguage] - source language name.
+   * @param {{ provider?: string, model?: string } | null} [request.route] - per-call model override.
+   * @param {AbortSignal} [request.signal] - caller cancellation.
+   * @returns {Promise<string[] | string>} aligned translations for the array
+   *   form; the translated document for the legacy string form.
+   */
+  async translateDocument(request) {
+    const paragraphs = Array.isArray(request.paragraphs)
+      ? request.paragraphs.map((paragraph) => String(paragraph)).filter((paragraph) => paragraph.trim())
+      : null;
+    if (paragraphs) {
+      if (paragraphs.length === 0) return [];
+      try {
+        const raw = await this._complete({
+          system: TRANSLATE_SYSTEM,
+          user: documentBatchPrompt(paragraphs, request.targetLanguage, request.sourceLanguage),
+          // A whole document needs a much larger output budget than a chunk;
+          // leave it on the general default instead of the per-chunk caps.
+          maxTokens: undefined,
+          route: request.route,
+          signal: request.signal,
+        });
+        const parsed = parseJsonLoose(raw);
+        if (
+          Array.isArray(parsed)
+          && parsed.length === paragraphs.length
+          && parsed.every((item) => typeof item === 'string' && item.trim())
+        ) {
+          return parsed.map((item) => item.trim());
+        }
+      } catch (error) {
+        if (isAbortError(error) || error.code === NO_MODEL_CODE) throw error;
+        // The one-shot document call failed outright; the per-paragraph pass
+        // below still gets the job done.
+      }
+      return mapLimit(paragraphs, 2, async (segment) => {
+        const text = await this._complete({
+          system: TRANSLATE_SYSTEM,
+          user: singleTranslatePrompt(segment, 'paragraph', request.targetLanguage, request.sourceLanguage),
+          route: request.route,
+          signal: request.signal,
+        });
+        return stripWrapping(text);
+      });
+    }
+    const text = await this._complete({
+      system: TRANSLATE_SYSTEM,
+      user: documentTranslatePrompt(request.source, request.targetLanguage, request.sourceLanguage),
+      // A whole document needs a much larger output budget than a chunk;
+      // leave it on the general default instead of the per-chunk caps.
+      maxTokens: undefined,
+      route: request.route,
+      signal: request.signal,
+    });
+    return stripWrapping(text);
+  }
+
+  /**
    * Translate one chunk, falling back to single-segment calls when the model
    * does not return an aligned JSON array.
    * @param {object} request - chunk request.
@@ -612,12 +733,13 @@ export class TranslationEngine {
   }
 
   /**
-   * Retranslate one segment, optionally following a user instruction.
+   * Retranslate one segment or a whole document, optionally following a user
+   * instruction.
    * @param {object} request - retranslation request.
-   * @param {string} request.source - source segment.
+   * @param {string} request.source - source segment or document.
    * @param {string} [request.translation] - current translation.
    * @param {string} [request.extraPrompt] - user instruction.
-   * @param {'sentence' | 'paragraph'} [request.kind] - segment kind.
+   * @param {'sentence' | 'paragraph' | 'document'} [request.kind] - unit kind.
    * @param {string} request.targetLanguage - target language name.
    * @param {string} [request.sourceLanguage] - source language name.
    * @param {{ provider?: string, model?: string } | null} [request.route] - per-call model override.
@@ -625,17 +747,21 @@ export class TranslationEngine {
    * @returns {Promise<string>} new translation.
    */
   async retranslate(request) {
+    const isDocument = request.kind === 'document';
     const text = await this._complete({
       system: RETRANSLATE_SYSTEM,
       user: retranslatePrompt({
         source: request.source,
         translation: request.translation,
         extraPrompt: request.extraPrompt,
-        kind: request.kind === 'paragraph' ? 'paragraph' : 'sentence',
+        kind: isDocument ? 'document' : request.kind === 'paragraph' ? 'paragraph' : 'sentence',
         targetLanguage: request.targetLanguage,
         sourceLanguage: request.sourceLanguage,
       }),
-      maxTokens: this.settings.retranslateMaxTokens ?? 4096,
+      // A whole document needs a much larger output budget than one segment;
+      // leave the document kind on the general default instead of the
+      // per-segment cap.
+      maxTokens: isDocument ? undefined : this.settings.retranslateMaxTokens ?? 4096,
       route: request.route,
       signal: request.signal,
     });

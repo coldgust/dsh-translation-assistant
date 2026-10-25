@@ -28,6 +28,10 @@ window.__ModuleLoader__.load({
     // localized hint before a round trip.
     const MAX_SEGMENTS = 400;
     const MAX_TOTAL_CHARS = 120_000;
+    // Whole-document requests are capped tighter than the segment budget:
+    // mirrors the Host's MAX_DOCUMENT_CHARS so an oversized text goes straight
+    // to the batched path instead of being rejected.
+    const MAX_WHOLE_DOC_CHARS = 60_000;
     const MAX_FULL_SCORE_CHARS = 60_000;
     // Custom retranslation instructions are short by design; the field caps the
     // text so an accidental paste cannot bloat the request.
@@ -37,10 +41,14 @@ window.__ModuleLoader__.load({
     const MAX_SUGGESTION_CHARS = 400;
     // Revision snapshots kept per document. A snapshot copies the whole
     // document, so the caps keep both the drawer and the storage quota sane.
-    const MAX_VERSIONS = 20;
+    const MAX_VERSIONS = 100;
     const MAX_VERSION_CHARS = 200_000;
     // What created a snapshot; also the key the drawer colours its tag by.
     const VERSION_KINDS = ['initial', 'retranslate', 'optimize', 'restore', 'manual'];
+    // How the source goes to the model: `whole` = one request carrying the
+    // full text as-is, `array` = one request carrying the paragraphs as a
+    // JSON array, `batch` = chunked concurrent requests.
+    const TRANS_MODES = ['whole', 'array', 'batch'];
 
     const LANGUAGES = [
       '中文',
@@ -65,6 +73,9 @@ window.__ModuleLoader__.load({
       targetPlaceholder: 'AI 译文会出现在这里，可直接修改',
       translate: '开始翻译',
       translating: '正在翻译…',
+      translateWholeBusy: '整篇翻译中…',
+      translateProgress: '翻译中 {done}/{total}',
+      translatePartial: '{failed} 段翻译失败，其余段落已完成。',
       footerHint: '评分由 AI 判断，仅供参考；点“AI 评分”或“全文评分”获取。',
       newTranslation: '新建翻译',
       newTranslationHint: '开始一篇新翻译，当前文档会留在历史里',
@@ -145,6 +156,7 @@ window.__ModuleLoader__.load({
       requestFailed: '请求失败，请稍后重试。',
       networkError: '无法连接翻译服务，请确认插件已启用后刷新页面。',
       retranslateFailed: '重译没有返回有效译文。',
+      translateFailed: '翻译没有返回有效译文。',
       scoreFailed: '评分没有返回有效结果。',
       invalidRequest: '请求内容不符合要求，请检查原文后重试。',
       tooLarge: '内容过大，请压缩图片或拆分文本后重试。',
@@ -170,7 +182,19 @@ window.__ModuleLoader__.load({
       fullModeTranslation: '译文',
       fullModeSource: '原文',
       fullModeBoth: '对比',
-      fullTextHint: '译文全文可直接编辑，改动会写回对应段落；也可切到原文或双栏对比查看。修改后全文评分会重置。',
+      fullRetranslateHint: '把整篇原文一次性交给当前模型重译；现有译文会作为参考一并送给模型。',
+      retranslateFullBusy: '整篇重译中…',
+      retranslateArrayBusy: '分段重译中…',
+      retranslateAllProgress: '重译中 {done}/{total}',
+      retranslatePartial: '{failed} 段重译失败，其余段落已完成。',
+      fullRetranslateMismatch: '重译结果被分成 {got} 段，与原文的 {want} 段对不上，未写入；请重试一次。',
+      transModeLabel: '翻译模式',
+      transModeHint: '连贯优先：整篇一次请求，上下文最完整、译文最连贯；对齐优先：全文分段成数组一次请求，段落一一对应最有保障；速度优先：分块并发（16 句或 6 段一块、3 路并发），长文最快。',
+      modeWhole: '连贯优先',
+      modeArray: '对齐优先',
+      modeBatch: '速度优先',
+      translateArrayBusy: '分段翻译中…',
+      fullTextHint: '译文全文可直接编辑，改动会写回对应段落；也可重译整篇、切到原文或双栏对比查看。修改后全文评分会重置。',
       copyTranslation: '复制译文',
       copySource: '复制原文',
       copied: '已复制',
@@ -215,6 +239,9 @@ window.__ModuleLoader__.load({
       targetPlaceholder: 'The AI translation appears here; edit it freely',
       translate: 'Translate',
       translating: 'Translating…',
+      translateWholeBusy: 'Translating the whole document…',
+      translateProgress: 'Translating {done}/{total}',
+      translatePartial: '{failed} segment(s) failed to translate; the rest are done.',
       footerHint: 'Scores are AI judgements for reference only; fetch them with “AI score” or “Full-text score”.',
       newTranslation: 'New translation',
       newTranslationHint: 'Start a new translation; the current document stays in history',
@@ -295,6 +322,7 @@ window.__ModuleLoader__.load({
       requestFailed: 'The request failed. Please try again.',
       networkError: 'Cannot reach the translation service. Make sure the plugin is enabled, then reload the page.',
       retranslateFailed: 'Retranslation did not return usable text.',
+      translateFailed: 'Translation did not return usable text.',
       scoreFailed: 'Scoring did not return a usable result.',
       invalidRequest: 'The request is invalid. Check the input and try again.',
       tooLarge: 'Content is too large. Compress the image or split the text, then retry.',
@@ -320,7 +348,19 @@ window.__ModuleLoader__.load({
       fullModeTranslation: 'Translation',
       fullModeSource: 'Source',
       fullModeBoth: 'Compare',
-      fullTextHint: 'The full translation is editable and writes back to its segments; switch to the source or a side-by-side view at any time. Editing resets the full-text score.',
+      fullRetranslateHint: 'Send the whole document to the current model in one request; the existing translation rides along as reference.',
+      retranslateFullBusy: 'Retranslating the whole document…',
+      retranslateArrayBusy: 'Retranslating segments…',
+      retranslateAllProgress: 'Retranslating {done}/{total}',
+      retranslatePartial: '{failed} segment(s) failed to retranslate; the rest are done.',
+      fullRetranslateMismatch: 'The retranslation came back as {got} paragraphs, but the source has {want}; nothing was written — try again.',
+      transModeLabel: 'Translation mode',
+      transModeHint: 'Coherence first: one request for the full text, the fullest context and the most coherent wording. Alignment first: the paragraphs go out as one JSON array, the strongest paragraph alignment. Speed first: chunks run three at a time (16 sentences or 6 paragraphs each), the fastest for long texts.',
+      modeWhole: 'Coherence first',
+      modeArray: 'Alignment first',
+      modeBatch: 'Speed first',
+      translateArrayBusy: 'Translating segments…',
+      fullTextHint: 'The full translation is editable and writes back to its segments; retranslate the document, switch to the source or a side-by-side view at any time. Editing resets the full-text score.',
       copyTranslation: 'Copy translation',
       copySource: 'Copy source',
       copied: 'Copied',
@@ -390,16 +430,24 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Split text into paragraphs on blank lines.
+     * Split text into paragraphs on blank lines. Text without any blank
+     * lines falls back to one paragraph per line, so the boxes match the
+     * line breaks the full-text view actually shows.
      * @param {string} text - source text.
      * @returns {string[]} trimmed paragraphs.
      */
     function splitParagraphs(text) {
-      return String(text)
-        .replace(/\r\n?/g, '\n')
+      const normalized = String(text).replace(/\r\n?/g, '\n');
+      const parts = normalized
         .split(/\n\s*\n+/)
         .map((part) => part.trim())
         .filter(Boolean);
+      if (parts.length > 1 || !normalized.includes('\n')) return parts;
+      const lines = normalized
+        .split('\n')
+        .map((part) => part.trim())
+        .filter(Boolean);
+      return lines.length > 1 ? lines : parts;
     }
 
     /**
@@ -995,16 +1043,6 @@ window.__ModuleLoader__.load({
         }
       }));
       return results;
-    }
-
-    /**
-     * Pick one translation out of a Host response array.
-     * @param {unknown} list - response array.
-     * @param {number} index - item index.
-     * @returns {string} translation or an empty string.
-     */
-    function pick(list, index) {
-      return Array.isArray(list) && typeof list[index] === 'string' ? list[index] : '';
     }
 
     /**
@@ -1825,6 +1863,13 @@ function storedRoutePreference(value) {
 .dta-tab{height:26px;padding:0 12px;border:0;border-radius:var(--dsw-radius-sm,6px);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12.5px;cursor:pointer}
 .dta-tab[aria-selected="true"]{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:0 0 0 .5px var(--dsw-alias-border-l1)}
 .dta-count{color:var(--dsw-alias-label-secondary);font-size:12px;white-space:nowrap}
+.dta-transMode{display:inline-flex;align-items:center;gap:6px;color:var(--dsw-alias-label-secondary);font-size:12px;white-space:nowrap;cursor:pointer;user-select:none}
+.dta-transMode:hover{color:var(--dsw-alias-label-primary)}
+.dta-transMode select{max-width:130px}
+.dta-modeHelp{position:relative;display:inline-flex;align-items:center;color:var(--dsw-alias-label-secondary);cursor:help}
+.dta-modeHelp:hover{color:var(--dsw-alias-label-primary)}
+.dta-modeBubble{position:absolute;top:calc(100% + 8px);right:-4px;z-index:40;width:250px;padding:8px 10px;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.7;white-space:normal;text-align:left;cursor:default;box-shadow:0 6px 20px rgba(0,0,0,.16);visibility:hidden;opacity:0;transition:opacity .12s ease}
+.dta-modeHelp:hover .dta-modeBubble,.dta-modeHelp[data-open="true"] .dta-modeBubble{visibility:visible;opacity:1}
 .dta-fileChip{display:inline-flex;align-items:center;gap:5px;max-width:min(280px,50vw);height:22px;padding:0 3px 0 8px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1}
 .dta-fileName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dta-fileClear{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1;cursor:pointer}
@@ -1901,6 +1946,12 @@ function storedRoutePreference(value) {
             // The full-text card opens on the translation, like the viewer expects.
             fullMode: storedPrefs.fullMode === 'source' || storedPrefs.fullMode === 'both' ? storedPrefs.fullMode : 'translation',
             route: storedRoutePreference(storedPrefs.route),
+            // How the source goes to the model. Sessions that predate the
+            // three-way switch only stored the wholeDoc boolean: false meant
+            // batched, anything else whole-document.
+            transMode: TRANS_MODES.includes(storedPrefs.transMode)
+              ? storedPrefs.transMode
+              : storedPrefs.wholeDoc === false ? 'batch' : 'whole',
           },
         };
       }, []);
@@ -1911,6 +1962,7 @@ function storedRoutePreference(value) {
       const [targetLanguage, setTargetLanguage] = React.useState(bootstrap.doc ? bootstrap.doc.targetLanguage : bootstrap.prefs.targetLanguage);
       const [view, setView] = React.useState(bootstrap.prefs.view);
       const [fullMode, setFullMode] = React.useState(bootstrap.prefs.fullMode);
+      const [transMode, setTransModeState] = React.useState(bootstrap.prefs.transMode);
       const [history, setHistory] = React.useState(bootstrap.history);
       const [currentId, setCurrentId] = React.useState(bootstrap.currentId);
       const [historyOpen, setHistoryOpen] = React.useState(false);
@@ -1926,6 +1978,9 @@ function storedRoutePreference(value) {
       const [promptFor, setPromptFor] = React.useState(null);
       const [promptText, setPromptText] = React.useState('');
       const [notice, setNotice] = React.useState(null);
+      // The translation-mode help bubble; native `title` tooltips do not
+      // surface inside the Harness webview, so the icon draws its own.
+      const [modeHelpOpen, setModeHelpOpen] = React.useState(false);
       const [engineModel, setEngineModel] = React.useState(null);
       const [engineState, setEngineState] = React.useState('unknown');
       // Models the Host can route to, and the one this page picked. `null`
@@ -2048,8 +2103,9 @@ function storedRoutePreference(value) {
           view,
           fullMode,
           route: route ? { provider: route.provider, model: route.model } : null,
+          transMode,
         });
-      }, [sourceLanguage, targetLanguage, view, fullMode, route]);
+      }, [sourceLanguage, targetLanguage, view, fullMode, route, transMode]);
 
       // Escape closes the side drawer, like a native dialog.
       React.useEffect(() => {
@@ -2161,16 +2217,23 @@ function storedRoutePreference(value) {
       const statusText = !status
         ? ''
         : status.kind === 'translating'
-          ? t('translating')
+          ? (status.total
+            ? format(t('translateProgress'), { done: status.done ?? 0, total: status.total })
+            : status.array
+              ? t('translateArrayBusy')
+              : status.whole ? t('translateWholeBusy') : t('translating'))
           : status.kind === 'ocr'
             ? t('ocrReading')
             : status.kind === 'reading'
               ? t('fileReading')
               : status.kind === 'scoring'
                 ? format(t('scoreAllProgress'), { done: status.done ?? 0, total: status.total ?? 0 })
-                : status.kind === 'optimizing'
-                  ? format(t('optimizeProgress'), { done: status.done ?? 0, total: status.total ?? 0 })
-                  : '';
+              : status.kind === 'optimizing'
+                ? format(t('optimizeProgress'), { done: status.done ?? 0, total: status.total ?? 0 })
+                // Whole-document retranslate has no top status line: the
+                // retranslate button in the full-text toolbar already shows
+                // the same progress right where the action lives.
+                : '';
 
       /**
        * Model fields for a Host request. Omitted while following the default
@@ -2264,6 +2327,129 @@ function storedRoutePreference(value) {
       }
 
       /**
+       * Land a whole-document reply: write one translation per paragraph,
+       * derive the sentence boxes, and record the history entry.
+       * @param {string} text - source text.
+       * @param {{ fileName?: string }} meta - imported file name to remember.
+       * @param {{ sentences: string[], paragraphs: string[] }} shape - the
+       *   splits the caller computed for the same text.
+       * @param {string[]} pieces - one trimmed translation per paragraph.
+       * @param {string | null} model - model label from the reply, if any.
+       * @returns {boolean} true (the caller keeps its control flow flat).
+       */
+      function applyDocumentPieces(text, meta, shape, pieces, model) {
+        // Sentence boxes follow the paragraph translations, cut to the same
+        // sentence count the source paragraph was split into.
+        const sentenceTranslations = [];
+        shape.paragraphs.forEach((source, index) => {
+          sentenceTranslations.push(...splitTranslationPieces(pieces[index], splitSentences(source).length));
+        });
+        const nextDoc = {
+          sourceText: text,
+          fileName: typeof meta.fileName === 'string' ? meta.fileName : '',
+          sourceLanguage,
+          targetLanguage,
+          documentScore: null,
+          sentences: shape.sentences.map((source, index) => ({
+            id: `s${index}`,
+            source,
+            translation: sentenceTranslations[index] ?? '',
+            score: null,
+          })),
+          paragraphs: shape.paragraphs.map((source, index) => ({
+            id: `p${index}`,
+            source,
+            translation: pieces[index],
+            score: null,
+          })),
+        };
+        setDoc(nextDoc);
+        setFileName(nextDoc.fileName);
+        // Every successful translation becomes a history entry.
+        const entry = makeEntry(nextDoc);
+        skipSync.current = entry.id;
+        setCurrentId(entry.id);
+        setHistory((list) => trimHistory([entry, ...list]));
+        setStatus(null);
+        if (model) {
+          setEngineModel(model);
+          setEngineState('ok');
+        }
+        return true;
+      }
+
+      /**
+       * Translate the whole text in one request so the model sees the full
+       * context. The source goes out as-is — the Host prompt asks the model
+       * to keep the paragraph structure — and the reply is split back into
+       * paragraphs on blank lines; the sentence boxes are derived per
+       * paragraph.
+       * @param {string} text - source text.
+       * @param {{ fileName?: string }} meta - imported file name to remember.
+       * @param {{ sentences: string[], paragraphs: string[] }} shape - the
+       *   splits the caller computed for the same text.
+       * @returns {Promise<boolean>} true when the translation landed; false
+       *   when the reply did not line up with the paragraphs (the caller then
+       *   falls back to the batched path).
+       * @throws when the request fails or the reply is unusable.
+       */
+      async function translateWholeDocument(text, meta, shape) {
+        setNotice(null);
+        setErrors({});
+        setPromptFor(null);
+        setStatus({ kind: 'translating', whole: true });
+        const data = await requestJson('translate', {
+          document: text,
+          targetLanguage,
+          ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
+          ...routePayload(),
+        });
+        if (typeof data.document !== 'string' || !data.document.trim()) {
+          throw localError(t('translateFailed'));
+        }
+        const pieces = data.document
+          .trim()
+          .split(/\n{2,}/)
+          .map((part) => part.trim())
+          .filter(Boolean);
+        if (pieces.length !== shape.paragraphs.length) return false;
+        return applyDocumentPieces(text, meta, shape, pieces, data.model ? String(data.model) : null);
+      }
+
+      /**
+       * Translate the whole text in one request that carries the paragraphs
+       * as a JSON array. The Host answers with an equally long array, so
+       * every paragraph lands on its own translation without trusting the
+       * model to reproduce a layout; the sentence boxes are derived per
+       * paragraph.
+       * @param {string} text - source text.
+       * @param {{ fileName?: string }} meta - imported file name to remember.
+       * @param {{ sentences: string[], paragraphs: string[] }} shape - the
+       *   splits the caller computed for the same text.
+       * @returns {Promise<boolean>} true when the translation landed; false
+       *   when the reply did not line up with the paragraphs (the caller then
+       *   falls back to the batched path).
+       * @throws when the request fails or the reply is unusable.
+       */
+      async function translateArrayDocument(text, meta, shape) {
+        setNotice(null);
+        setErrors({});
+        setPromptFor(null);
+        setStatus({ kind: 'translating', array: true });
+        const data = await requestJson('translate', {
+          document: shape.paragraphs,
+          targetLanguage,
+          ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
+          ...routePayload(),
+        });
+        const reply = Array.isArray(data.paragraphs) ? data.paragraphs : null;
+        if (!reply || reply.length !== shape.paragraphs.length) return false;
+        const pieces = reply.map((item) => String(item ?? '').trim());
+        if (!pieces.every(Boolean)) return false;
+        return applyDocumentPieces(text, meta, shape, pieces, data.model ? String(data.model) : null);
+      }
+
+      /**
        * Validate one block of text and translate it into the comparison view.
        * @param {string} rawText - source text.
        * @param {{ fileName?: string }} [meta] - imported file name to remember.
@@ -2287,18 +2473,107 @@ function storedRoutePreference(value) {
           setNotice({ kind: 'warn', text: t('tooLongDoc') });
           return false;
         }
+        // The whole-document request sends the text as-is, so the raw length
+        // is what counts against the Host's document budget. The array
+        // request wraps every paragraph in JSON quotes and commas instead.
+        const wholeDocChars = text.length;
+        const arrayChars = totalChars + paragraphs.length * 4 + 2;
+        if (transMode === 'whole' && wholeDocChars <= MAX_WHOLE_DOC_CHARS) {
+          try {
+            const landed = await translateWholeDocument(text, meta, { sentences, paragraphs });
+            if (landed) return true;
+          } catch (error) {
+            if (Number(error && error.status) !== 400) {
+              setStatus(null);
+              setNotice({ kind: 'error', text: describeError(error, t) });
+              return false;
+            }
+            // The running Host rejected the document request — an older
+            // version that only knows the segment lists. The batched path
+            // below still gets the job done, so no error is shown.
+          }
+          // The whole-document reply did not line up with the paragraphs;
+          // the batched path below still gets the job done.
+        } else if (transMode === 'array' && arrayChars <= MAX_WHOLE_DOC_CHARS) {
+          try {
+            const landed = await translateArrayDocument(text, meta, { sentences, paragraphs });
+            if (landed) return true;
+          } catch (error) {
+            if (Number(error && error.status) !== 400) {
+              setStatus(null);
+              setNotice({ kind: 'error', text: describeError(error, t) });
+              return false;
+            }
+            // Same fallback contract as whole-document mode: an older Host
+            // that does not know the array protocol leads to the batched
+            // path below, without an error.
+          }
+          // The reply was not an aligned array; the batched path below still
+          // gets the job done.
+        }
         setNotice(null);
         setErrors({});
         setPromptFor(null);
-        setStatus({ kind: 'translating' });
+        // Chunk like the Host does (16 sentences / 6 paragraphs per request),
+        // three chunks in flight, so the counter moves while a long document
+        // is translating. Each client chunk lands as one Host chunk. The
+        // progress counter tracks paragraphs only — sentences are translated
+        // by the same pass but never shown as their own steps.
+        const totalItems = sentences.length + paragraphs.length;
+        const chunks = [];
+        for (let index = 0; index < sentences.length; index += 16) {
+          chunks.push({ kind: 'sentences', offset: index, items: sentences.slice(index, index + 16) });
+        }
+        for (let index = 0; index < paragraphs.length; index += 6) {
+          chunks.push({ kind: 'paragraphs', offset: index, items: paragraphs.slice(index, index + 6) });
+        }
+        const results = {
+          sentences: new Array(sentences.length).fill(''),
+          paragraphs: new Array(paragraphs.length).fill(''),
+        };
+        let done = 0;
+        let failed = 0;
+        let lastError = null;
+        // The Host echoes the model that served the request; the batched pass
+        // spans several requests, so remember the last one that answered.
+        let replyModel = null;
+        setStatus({ kind: 'translating', done: 0, total: paragraphs.length });
         try {
-          const data = await requestJson('translate', {
-            sentences,
-            paragraphs,
-            targetLanguage,
-            ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
-            ...routePayload(),
+          await mapLimit(chunks, 3, async (chunk) => {
+            try {
+              const data = await requestJson('translate', {
+                [chunk.kind]: chunk.items,
+                targetLanguage,
+                ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
+                ...routePayload(),
+              });
+              if (typeof data.model === 'string' && data.model) replyModel = data.model;
+              const list = chunk.kind === 'sentences' ? data.sentences : data.paragraphs;
+              if (Array.isArray(list)) {
+                list.forEach((translated, index) => {
+                  const at = chunk.offset + index;
+                  if (at < results[chunk.kind].length && typeof translated === 'string' && translated.trim()) {
+                    results[chunk.kind][at] = translated.trim();
+                  }
+                });
+              } else {
+                failed += chunk.items.length;
+              }
+            } catch (error) {
+              failed += chunk.items.length;
+              lastError = error;
+            }
+            if (chunk.kind === 'paragraphs') done += chunk.items.length;
+            setStatus({ kind: 'translating', done, total: paragraphs.length });
           });
+          if (failed >= totalItems) {
+            setStatus(null);
+            setNotice({ kind: 'error', text: lastError ? describeError(lastError, t) : t('translateFailed') });
+            return false;
+          }
+          if (failed > 0) {
+            setNotice({ kind: 'warn', text: format(t('translatePartial'), { failed }) });
+          }
           const nextDoc = {
             sourceText: text,
             fileName: typeof meta.fileName === 'string' ? meta.fileName : '',
@@ -2308,13 +2583,13 @@ function storedRoutePreference(value) {
             sentences: sentences.map((source, index) => ({
               id: `s${index}`,
               source,
-              translation: pick(data.sentences, index),
+              translation: results.sentences[index],
               score: null,
             })),
             paragraphs: paragraphs.map((source, index) => ({
               id: `p${index}`,
               source,
-              translation: pick(data.paragraphs, index),
+              translation: results.paragraphs[index],
               score: null,
             })),
           };
@@ -2326,8 +2601,8 @@ function storedRoutePreference(value) {
           setCurrentId(entry.id);
           setHistory((list) => trimHistory([entry, ...list]));
           setStatus(null);
-          if (data.model) {
-            setEngineModel(String(data.model));
+          if (replyModel) {
+            setEngineModel(replyModel);
             setEngineState('ok');
           }
           return true;
@@ -2704,6 +2979,152 @@ function storedRoutePreference(value) {
       }
 
       /**
+       * Retranslate the document from the full-text view. Batched mode
+       * retranslates every paragraph on its own, three in flight at a time;
+       * whole-document and segment-array modes send one request so the model
+       * sees the full context (the array protocol is a translate-side
+       * guarantee, retranslation keeps the marked-document protocol).
+       * Either way the pass leaves one revision snapshot.
+       * @param {string} [extraPrompt] - optional instruction, capped like the
+       *   per-segment prompt box.
+       */
+      async function runFullRetranslate(extraPrompt) {
+        if (!doc || status) return;
+        if (!doc.sourceText.trim() || doc.paragraphs.length === 0) {
+          setNotice({ kind: 'warn', text: t('noSource') });
+          return;
+        }
+        if (transMode !== 'batch') {
+          await retranslateWholeDocument(extraPrompt);
+          return;
+        }
+        await retranslateSegmentsPass(extraPrompt);
+      }
+
+      /**
+       * Whole-document retranslate: the full source goes out at once (the
+       * existing translation as reference), and the reply is split back into
+       * paragraphs on blank lines.
+       * @param {string} [extraPrompt] - optional instruction.
+       */
+      async function retranslateWholeDocument(extraPrompt) {
+        const instruction = String(extraPrompt ?? '').trim().slice(0, MAX_PROMPT_CHARS);
+        const collection = doc.paragraphs.some((item) => item.translation.trim())
+          ? 'paragraphs'
+          : 'sentences';
+        const segments = doc[collection];
+        const reference = buildFullTranslation(doc);
+        const before = doc;
+        setNotice(null);
+        setPromptFor(null);
+        setPromptText('');
+        // `array` marks the segment-array mode, so the busy label can name
+        // the mode instead of the whole-document wording.
+        setStatus({ kind: 'retranslatingFull', array: transMode === 'array' });
+        try {
+          const data = await requestJson('retranslate', {
+            source: doc.sourceText,
+            ...(reference.trim() ? { translation: reference.trim() } : {}),
+            ...(instruction ? { extraPrompt: instruction } : {}),
+            kind: 'document',
+            targetLanguage,
+            ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
+            ...routePayload(),
+          });
+          if (typeof data.translation !== 'string' || !data.translation.trim()) {
+            setNotice({ kind: 'error', text: t('retranslateFailed') });
+            return;
+          }
+          const parts = data.translation
+            .trim()
+            .split(/\n{2,}/)
+            .map((part) => part.trim())
+            .filter(Boolean);
+          // The Host prompt asks for the same paragraph count; a mismatch
+          // cannot be mapped back faithfully, so nothing is written.
+          if (parts.length !== segments.length) {
+            setNotice({
+              kind: 'warn',
+              text: format(t('fullRetranslateMismatch'), { got: parts.length, want: segments.length }),
+            });
+            return;
+          }
+          segments.forEach((item, index) => {
+            patchSegment(collection, item.id, { translation: parts[index], score: null });
+          });
+          recordVersion(before, 'retranslate');
+        } catch (error) {
+          setNotice({ kind: 'error', text: describeError(error, t) });
+        } finally {
+          setStatus(null);
+        }
+      }
+
+      /**
+       * Per-paragraph retranslate, three in flight at a time. Existing
+       * translations ride along as reference, each reply replaces its own
+       * paragraph, and the pass leaves one revision snapshot.
+       * @param {string} [extraPrompt] - optional instruction.
+       */
+      async function retranslateSegmentsPass(extraPrompt) {
+        const instruction = String(extraPrompt ?? '').trim().slice(0, MAX_PROMPT_CHARS);
+        const snapshot = doc.paragraphs
+          .filter((item) => item.translation.trim() || item.source.trim())
+          .map((item) => ({
+            id: item.id,
+            source: item.source,
+            translation: item.translation,
+          }));
+        const before = doc;
+        let rewritten = 0;
+        let failed = 0;
+        let done = 0;
+        setNotice(null);
+        setPromptFor(null);
+        setPromptText('');
+        setStatus({ kind: 'retranslatingFull', done: 0, total: snapshot.length });
+        try {
+          await mapLimit(snapshot, 3, async (item) => {
+            try {
+              const data = await requestJson('retranslate', {
+                source: item.source,
+                ...(item.translation.trim() ? { translation: item.translation.trim() } : {}),
+                ...(instruction ? { extraPrompt: instruction } : {}),
+                kind: 'paragraph',
+                targetLanguage,
+                ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
+                ...routePayload(),
+              });
+              if (typeof data.translation === 'string' && data.translation.trim()) {
+                patchSegment('paragraphs', item.id, { translation: data.translation.trim(), score: null });
+                rewritten += 1;
+              } else {
+                failed += 1;
+              }
+            } catch (error) {
+              failed += 1;
+              setErrors((current) => ({ ...current, [item.id]: describeError(error, t) }));
+            }
+            done += 1;
+            setStatus({ kind: 'retranslatingFull', done, total: snapshot.length });
+          });
+          if (rewritten > 0) recordVersion(before, 'retranslate');
+          // The full-text view has no per-segment rows to hang errors on, so a
+          // partial or total failure is reported as one notice instead.
+          if (failed > 0) {
+            setNotice({
+              kind: rewritten > 0 ? 'warn' : 'error',
+              text: rewritten > 0
+                ? format(t('retranslatePartial'), { failed })
+                : t('retranslateFailed'),
+            });
+          }
+        } finally {
+          setStatus(null);
+        }
+      }
+
+      /**
        * Retranslate one sentence or paragraph, optionally with an instruction.
        * @param {'sentences' | 'paragraphs'} collection - target collection.
        * @param {object} item - segment.
@@ -3050,6 +3471,64 @@ function storedRoutePreference(value) {
         setShowScores((current) => !current);
       }
 
+      /**
+       * Switch the translation mode. The differences live on the help icon
+       * next to the picker, so switching itself stays silent.
+       * @param {string} next - `whole`, `array`, or `batch`.
+       */
+      function setTransMode(next) {
+        if (!TRANS_MODES.includes(next)) return;
+        setTransModeState(next);
+      }
+
+      /**
+       * The translation-mode picker with its help icon. Clicking the icon
+       * (or hovering it) opens a small bubble that spells out how the three
+       * modes differ, so nothing else needs to.
+       * @returns {object} virtual DOM node.
+       */
+      function transModePicker() {
+        return h('label', { className: 'dta-transMode' },
+          t('transModeLabel'),
+          h('select', {
+            className: 'dta-select',
+            value: transMode,
+            onChange: (event) => setTransMode(event.target.value),
+            'aria-label': t('transModeLabel'),
+          },
+            h('option', { value: 'whole' }, t('modeWhole')),
+            h('option', { value: 'array' }, t('modeArray')),
+            h('option', { value: 'batch' }, t('modeBatch')),
+          ),
+          h('span', {
+            className: 'dta-modeHelp',
+            'data-open': modeHelpOpen,
+            'aria-expanded': modeHelpOpen,
+            onClick: (event) => {
+              if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+              setModeHelpOpen(!modeHelpOpen);
+            },
+          },
+            h('svg', { viewBox: '0 0 16 16', width: 12, height: 12, 'aria-hidden': true },
+              h('circle', { cx: 8, cy: 8, r: 6.6, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.3 }),
+              h('path', {
+                d: 'M6.2 6.1c.1-1 .9-1.6 1.8-1.6 1 0 1.8.6 1.8 1.6 0 .7-.4 1.1-.9 1.4-.5.3-.8.6-.8 1.2v.3',
+                fill: 'none',
+                stroke: 'currentColor',
+                'stroke-width': 1.3,
+                'stroke-linecap': 'round',
+              }),
+              h('circle', { cx: 8.1, cy: 11.2, r: 0.9, fill: 'currentColor' }),
+            ),
+            // Always in the DOM; CSS shows it on hover or when opened by a
+            // click. Native `title` tooltips never surface in the Harness
+            // webview, and a document-level click-to-close races the
+            // framework's own event delegation, so neither is relied on.
+            h('span', { className: 'dta-modeBubble', role: 'tooltip' }, t('transModeHint')),
+          ),
+        );
+      }
+
       /** Render the source input form. */
       function renderLanding() {
         return h('section', { className: 'dta-card' },
@@ -3067,6 +3546,7 @@ function storedRoutePreference(value) {
               t,
               onChange: setTargetLanguage,
             }),
+            transModePicker(),
             h('span', { className: 'dta-count' }, charCount(draft.length)),
             fileName
               ? h('span', { className: 'dta-fileChip', title: t('fileChipHint') },
@@ -3679,7 +4159,7 @@ function storedRoutePreference(value) {
                     : null,
                 ),
             ),
-            status
+            status && statusText
               ? h('p', { className: 'dta-statusLine', role: 'status' },
                 h(BusyDot, null),
                 statusText,
@@ -3705,6 +4185,7 @@ function storedRoutePreference(value) {
       function renderFullText() {
         const fullSource = doc ? doc.sourceText : '';
         const optimizing = status && status.kind === 'optimizing';
+        const fullRetranslating = status && status.kind === 'retranslatingFull';
         const modes = [
           { key: 'translation', label: t('fullModeTranslation') },
           { key: 'source', label: t('fullModeSource') },
@@ -3736,6 +4217,28 @@ function storedRoutePreference(value) {
                 `${t('scoreLabel')} ${fullScore.value}`)
               : null,
             h('div', { className: 'dta-toolbarSpacer' }),
+            transModePicker(),
+            h('button', {
+              type: 'button',
+              className: 'dta-btn',
+              title: t('fullRetranslateHint'),
+              disabled: isWorking,
+              onClick: () => runFullRetranslate(''),
+            }, fullRetranslating
+              ? (status.total
+                ? format(t('retranslateAllProgress'), { done: status.done, total: status.total })
+                : status.array ? t('retranslateArrayBusy') : t('retranslateFullBusy'))
+              : t('retranslate')),
+            h('button', {
+              type: 'button',
+              className: 'dta-btn',
+              'aria-expanded': promptFor === 'full',
+              disabled: isWorking,
+              onClick: () => {
+                setPromptFor(promptFor === 'full' ? null : 'full');
+                setPromptText('');
+              },
+            }, t('addPrompt')),
             h('button', {
               type: 'button',
               className: 'dta-btn',
@@ -3770,6 +4273,40 @@ function storedRoutePreference(value) {
               onClick: () => handleCopy('translation'),
             }, copied === 'translation' ? t('copied') : t('copyTranslation')),
           ),
+          promptFor === 'full'
+            ? h('div', { className: 'dta-promptBox' },
+              h('input', {
+                className: 'dta-input',
+                value: promptText,
+                autoFocus: true,
+                maxLength: MAX_PROMPT_CHARS,
+                placeholder: t('promptPlaceholder'),
+                'aria-label': t('promptPlaceholder'),
+                onChange: (event) => setPromptText(String(event.target.value).slice(0, MAX_PROMPT_CHARS)),
+                onKeyDown: (event) => {
+                  if (event.key !== 'Enter') return;
+                  if (event.nativeEvent && event.nativeEvent.isComposing) return;
+                  event.preventDefault();
+                  if (promptText.trim() && !isWorking) runFullRetranslate(promptText);
+                },
+              }),
+              h('span', { className: 'dta-promptCount' }, `${promptText.length}/${MAX_PROMPT_CHARS}`),
+              h('button', {
+                type: 'button',
+                className: 'dta-btn dta-btn--primary',
+                disabled: !promptText.trim() || isWorking,
+                onClick: () => runFullRetranslate(promptText),
+              }, t('promptConfirm')),
+              h('button', {
+                type: 'button',
+                className: 'dta-btn dta-btn--ghost',
+                onClick: () => {
+                  setPromptFor(null);
+                  setPromptText('');
+                },
+              }, t('promptCancel')),
+            )
+            : null,
           fullMode === 'both'
             ? h('div', { className: 'dta-columns dta-fullCols' },
               h('div', { className: 'dta-col' },

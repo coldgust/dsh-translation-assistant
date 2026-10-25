@@ -4,6 +4,10 @@ import { Readable } from 'node:stream';
 
 import { apply } from '../host/index.js';
 
+// Mirror the Host's length caps (they are not exported).
+const MAX_SEGMENT_CHARS = 20_000;
+const MAX_DOCUMENT_TOTAL_CHARS = 120_000;
+
 /**
  * Build a fake abstract-LLM service.
  *
@@ -160,7 +164,7 @@ test('health endpoint reports the resolved model', async () => {
   const response = await call(handler, { method: 'GET', path: '/dsh-translation/api/health' });
   assert.equal(response.status, 200);
   assert.equal(response.json.ok, true);
-  assert.equal(response.json.revision, '5');
+  assert.equal(response.json.revision, '7');
   assert.ok(response.json.features.includes('ocr'));
   assert.ok(response.json.features.includes('score-document'));
   assert.ok(response.json.features.includes('models'));
@@ -335,6 +339,35 @@ test('translate rejects an empty payload and cross-origin calls', async () => {
   assert.equal(cross.status, 403);
 });
 
+test('translate accepts a whole document and keeps the paragraph structure', async () => {
+  const llm = makeLlm(() => '整篇译文第一段。\n\n整篇译文第二段。');
+  const { handler } = createHarness({ llm });
+  const response = await call(handler, {
+    path: '/dsh-translation/api/translate',
+    body: { document: '第一段。\n\n第二段。', targetLanguage: '中文' },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.json.document, '整篇译文第一段。\n\n整篇译文第二段。');
+  const prompt = llm.calls[0].messages[0].content[0].text;
+  assert.match(prompt, /following document into 中文/);
+  assert.match(prompt, /exactly the same paragraphs/);
+});
+
+test('translate accepts a paragraph array and answers an aligned array', async () => {
+  const llm = makeLlm(() => '["整篇译文甲。", "整篇译文乙。"]');
+  const { handler } = createHarness({ llm });
+  const response = await call(handler, {
+    path: '/dsh-translation/api/translate',
+    body: { document: ['第一段。', '第二段。'], targetLanguage: '中文' },
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.json.paragraphs, ['整篇译文甲。', '整篇译文乙。']);
+  assert.equal(response.json.document, '整篇译文甲。\n\n整篇译文乙。');
+  const prompt = llm.calls[0].messages[0].content[0].text;
+  assert.match(prompt, /exactly 2 translations/);
+  assert.match(prompt, /coherent across paragraphs/);
+});
+
 test('retranslate passes the instruction through and returns the revised text', async () => {
   const llm = makeLlm(() => '更口语化的译文');
   const { handler } = createHarness({ llm });
@@ -351,6 +384,40 @@ test('retranslate passes the instruction through and returns the revised text', 
   assert.equal(response.status, 200);
   assert.equal(response.json.translation, '更口语化的译文');
   assert.match(llm.calls[0].messages[0].content[0].text, /more casual/);
+});
+
+test('retranslate accepts a whole document in one request', async () => {  const llm = makeLlm(() => '整篇新译文第一段。\n\n整篇新译文第二段。');
+  const { handler } = createHarness({ llm });
+  // One paragraph exceeds the per-segment cap on purpose: the document kind
+  // must be judged by the document limit instead.
+  const longParagraph = 'A'.repeat(MAX_SEGMENT_CHARS + 1);
+  const response = await call(handler, {
+    path: '/dsh-translation/api/retranslate',
+    body: {
+      source: `${longParagraph}\n\nB paragraph`,
+      translation: '旧译文一\n\n旧译文二',
+      kind: 'document',
+      targetLanguage: '中文',
+    },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.json.kind, 'document');
+  assert.equal(response.json.translation, '整篇新译文第一段。\n\n整篇新译文第二段。');
+  const prompt = llm.calls[0].messages[0].content[0].text;
+  assert.match(prompt, /following document into 中文/);
+  assert.match(prompt, /exactly the same paragraphs/);
+  assert.match(prompt, /旧译文一/);
+});
+
+test('a document retranslate that exceeds the total limit is rejected', async () => {
+  const llm = makeLlm(() => 'x');
+  const { handler } = createHarness({ llm });
+  const half = 'A'.repeat(MAX_DOCUMENT_TOTAL_CHARS / 2 + 10);
+  const response = await call(handler, {
+    path: '/dsh-translation/api/retranslate',
+    body: { source: half, translation: half, kind: 'document', targetLanguage: '中文' },
+  });
+  assert.equal(response.status, 400);
 });
 
 test('score returns a clamped score with a comment', async () => {

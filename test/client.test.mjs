@@ -184,6 +184,24 @@ assert.equal(captured.id, 'dsh-translation-assistant');
  */
 function createPage(options = {}) {
   const storage = options.storage ?? makeStorage();
+  // Real users get whole-document mode on by default. Tests default to the
+  // batched shape so the segment-list requests stay the asserted baseline;
+  // pass `transMode: 'whole' | 'array'` to exercise the one-request modes.
+  // `noWholeDocPref` skips the injection entirely, leaving the component's
+  // own default. Only fills the key in when it is not stored yet, so a
+  // reload keeps the preferences the previous page instance saved.
+  if (!options.noWholeDocPref) {
+    let storedPrefs = {};
+    try {
+      storedPrefs = JSON.parse(storage.getItem('dsh-translation-assistant:prefs:v2') || '{}') || {};
+    } catch {
+      storedPrefs = {};
+    }
+    if (storedPrefs.transMode === undefined) {
+      storedPrefs.transMode = options.transMode ?? 'batch';
+      storage.setItem('dsh-translation-assistant:prefs:v2', JSON.stringify(storedPrefs));
+    }
+  }
   const copiedTexts = [];
   Object.defineProperty(globalThis, 'navigator', {
     configurable: true,
@@ -242,13 +260,39 @@ function createPage(options = {}) {
 
   const fetchLog = [];
   const handlers = options.handlers || {};
+  // Tests mostly describe translation with the segment-list shape. Requests
+  // now arrive per chunk, so each call carries one list at a time: fill in
+  // the missing list with an empty array and, in whole-document mode, a
+  // reply that only carries the lists is normalized by joining the
+  // paragraphs back.
+  const runHandler = (action, body) => {
+    let payload = body;
+    if (action === 'translate' && body) {
+      payload = { sentences: [], paragraphs: [], ...body };
+      const value = handlers[action](payload);
+      if (body.document && value && value.document === undefined && Array.isArray(value.paragraphs)) {
+        return {
+          ...value,
+          document: value.paragraphs.join('\n\n'),
+        };
+      }
+      return value;
+    }
+    return handlers[action](payload);
+  };
   const fetchImpl = async (url, init = {}) => {
     const action = String(url).split('/').pop();
     const body = init.body ? JSON.parse(init.body) : undefined;
     fetchLog.push({ action, body });
-    const handler = handlers[action];
-    if (!handler) throw new Error(`Unexpected fetch: ${url}`);
-    const value = handler(body);
+    if (!handlers[action]) throw new Error(`Unexpected fetch: ${url}`);
+    // A handler may return a promise to hold the request in flight, which is
+    // how tests observe intermediate progress states.
+    const value = await runHandler(action, body);
+    // A handler may answer with a full error response to exercise the
+    // client's failure paths.
+    if (value && typeof value === 'object' && value.ok === false && Number.isFinite(Number(value.status))) {
+      return value;
+    }
     return { ok: true, status: 200, json: async () => value };
   };
   globalThis.fetch = fetchImpl;
@@ -370,9 +414,9 @@ test('landing view renders and translates into the paragraph comparison by defau
   assert.match(page.text(), /段2译/);
   assert.match(page.text(), /逐段对比/);
   assert.match(page.text(), /逐句对比/);
-  const translateCall = page.fetchLog.find((entry) => entry.action === 'translate');
-  assert.equal(translateCall.body.sentences.length, 3);
-  assert.equal(translateCall.body.paragraphs.length, 2);
+  const translateCalls = page.fetchLog.filter((entry) => entry.action === 'translate');
+  assert.equal(translateCalls.some((entry) => (entry.body.sentences || []).length === 3), true, 'sentences go out as one chunk');
+  assert.equal(translateCalls.some((entry) => (entry.body.paragraphs || []).length === 2), true, 'paragraphs go out as one chunk');
   await page.click('逐句对比');
   assert.match(page.text(), /句1译/);
   assert.match(page.text(), /句3译/);
@@ -895,6 +939,428 @@ test('the full-text view optimises the document from its own feedback', async ()
   assert.ok(page.findButton('全文评分'), 'the document can be scored again');
 });
 
+test('the full-text view retranslates per paragraph by default and whole-document when switched on', async () => {
+  const rewrites = [];
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: () => ({ sentences: ['句甲', '句乙'], paragraphs: ['段落甲', '段落乙'], model: 'm' }),
+      retranslate: (body) => {
+        rewrites.push(body);
+        return {
+          translation: body.source.split('\n\n').map((part) => `重译-${part}`).join('\n\n'),
+        };
+      },
+    },
+  });
+  await page.flush();
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'First paragraph.\n\nSecond paragraph.',
+  );
+  await page.click('开始翻译');
+  await page.click('全文');
+  assert.ok(page.findButton('AI 重译'), 'the full-text toolbar offers the document retranslate');
+
+  await page.click('AI 重译');
+  assert.equal(rewrites.length, 2, 'every translated paragraph is retranslated once by default');
+  assert.ok(rewrites.every((body) => body.kind === 'paragraph'));
+  assert.ok(
+    rewrites.every((body) => typeof body.translation === 'string' && body.translation.trim()),
+    'the existing translation rides along as reference',
+  );
+  assert.ok(rewrites.every((body) => body.extraPrompt === undefined), 'no instruction without the prompt box');
+  assert.equal(fullTextBox(page).props.value, '重译-First paragraph.\n\n重译-Second paragraph.');
+  assert.doesNotMatch(page.text(), /AI 评分 \d/, 'the rewrite clears the full-text score');
+
+  // Switch to whole-document mode: one request carries the full text.
+  const modeSelect = page.hostNodes((node) => node.type === 'select' && node.props['aria-label'] === '翻译模式')[0];
+  assert.ok(modeSelect, 'the translation-mode switch is in the workspace toolbar');
+  modeSelect.props.onChange({ target: { value: 'whole' } });
+  await page.flush();
+  await page.click('AI 重译');
+  assert.equal(rewrites.length, 3, 'the whole document goes out in one request');
+  assert.equal(rewrites[2].kind, 'document');
+  assert.equal(rewrites[2].source, 'First paragraph.\n\nSecond paragraph.');
+  assert.equal(rewrites[2].translation, '重译-First paragraph.\n\n重译-Second paragraph.', 'the full translation rides along as reference');
+
+  // The first pass only replaced the baseline, so this one leaves a snapshot —
+  // the same rule the per-segment rewrite follows.
+  await openVersions(page);
+  assert.equal(textOf(versionTags(page)[0]), '重译前', 'the pass leaves one rollback point');
+  assert.equal(versionTags(page).length, 2, 'the machine baseline and the rewrite snapshot');
+});
+
+test('the full-text prompt retranslate follows the switch: per paragraph by default', async () => {
+  const calls = [];
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: () => ({ sentences: ['句甲', '句乙'], paragraphs: ['段落甲', '段落乙'], model: 'm' }),
+      retranslate: (body) => {
+        calls.push(body);
+        if (body.source.startsWith('Second')) throw new Error('boom');
+        return { translation: `口语-${body.source}` };
+      },
+    },
+  });
+  await page.flush();
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'First paragraph.\n\nSecond paragraph.',
+  );
+  await page.click('开始翻译');
+  await page.click('全文');
+  assert.equal(page.findInput((node) => node.props.maxLength === 100), undefined, 'no prompt box until it is asked for');
+
+  await page.click('提示词重译');
+  const input = page.findInput((node) => node.props.maxLength === 100);
+  assert.ok(input, 'the prompt box opens inside the full-text card');
+  input.props.onChange({ target: { value: '更口语一些' } });
+  await page.flush();
+  assert.match(page.text(), /5\/100/, 'the counter tracks the instruction');
+
+  await page.click('重译');
+  assert.equal(calls.length, 2, 'the instruction reaches every paragraph');
+  assert.ok(calls.every((body) => body.extraPrompt === '更口语一些'));
+  assert.equal(fullTextBox(page).props.value, '口语-First paragraph.\n\n段落乙');
+  assert.match(page.text(), /1 段重译失败，其余段落已完成。/, 'a partial failure is reported once');
+});
+
+test('the full-text prompt retranslate sends one document request when switched on', async () => {
+  const calls = [];
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: () => ({ sentences: ['句甲', '句乙'], paragraphs: ['段落甲', '段落乙'], model: 'm' }),
+      retranslate: (body) => {
+        calls.push(body);
+        if (calls.length === 1) {
+          return {
+            translation: body.source.split('\n\n').map((part) => `口语-${part}`).join('\n\n'),
+          };
+        }
+        // The model merged the paragraphs: the reply cannot be mapped back.
+        return { translation: '被合并成一整段的译文。' };
+      },
+    },
+  });
+  await page.flush();
+  // The switch lives on the landing form and in the full-text card only.
+  const modeSelect = page.hostNodes((node) => node.type === 'select' && node.props['aria-label'] === '翻译模式')[0];
+  assert.ok(modeSelect, 'the translation-mode switch is in the full-text card');
+  modeSelect.props.onChange({ target: { value: 'whole' } });
+  await page.flush();
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'First paragraph.\n\nSecond paragraph.',
+  );
+  await page.click('开始翻译');
+  await page.click('全文');
+  assert.equal(page.findInput((node) => node.props.maxLength === 100), undefined, 'no prompt box until it is asked for');
+
+  await page.click('提示词重译');
+  const input = page.findInput((node) => node.props.maxLength === 100);
+  input.props.onChange({ target: { value: '更口语一些' } });
+  await page.flush();
+  await page.click('重译');
+  assert.equal(calls.length, 1, 'the instruction rides on the single document request');
+  assert.equal(calls[0].kind, 'document');
+  assert.equal(calls[0].extraPrompt, '更口语一些');
+  assert.equal(fullTextBox(page).props.value, '口语-First paragraph.\n\n口语-Second paragraph.');
+
+  await page.click('AI 重译');
+  assert.match(page.text(), /被分成 1 段，与原文的 2 段对不上/, 'a paragraph mismatch is reported');
+  assert.equal(fullTextBox(page).props.value, '口语-First paragraph.\n\n口语-Second paragraph.', 'a mismatch writes nothing');
+});
+
+test('whole-document mode translates the full text in one request and falls back when it does not line up', async () => {
+  const calls = [];
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: (body) => {
+        calls.push(body);
+        if (body.document) {
+          if (calls.length === 1) return { document: '整篇-第一段。\n\n整篇-第二段。', model: 'm' };
+          // The model merged the paragraphs: the client falls back.
+          return { document: '整篇被合并成一段。', model: 'm' };
+        }
+        return { sentences: ['逐段-第一句。', '逐段-第二句。'], paragraphs: ['逐段-第一段。', '逐段-第二段。'], model: 'm' };
+      },
+    },
+  });
+  await page.flush();
+  const modeSelect = page.hostNodes((node) => node.type === 'select' && node.props['aria-label'] === '翻译模式')[0];
+  assert.ok(modeSelect, 'the translation-mode switch sits next to the language picks');
+  assert.equal(modeSelect.props.value, 'batch', 'tests start in the batched mode');
+  modeSelect.props.onChange({ target: { value: 'whole' } });
+  await page.flush();
+  const helpIcon = page.hostNodes((node) => node.type === 'span' && node.props.className === 'dta-modeHelp')[0];
+  assert.ok(helpIcon, 'the mode picker carries a hover help icon');
+  assert.equal(helpIcon.props['data-open'], false, 'the bubble starts closed');
+  const bubble = page.hostNodes((node) => node.type === 'span' && node.props.className === 'dta-modeBubble')[0];
+  assert.ok(bubble, 'the bubble is always in the DOM; CSS controls its visibility');
+  assert.match(textOf(bubble), /连贯优先.*对齐优先.*速度优先/, 'the bubble spells out all three modes');
+  helpIcon.props.onClick({ preventDefault() {}, stopPropagation() {} });
+  await page.flush();
+  const reopened = page.hostNodes((node) => node.type === 'span' && node.props.className === 'dta-modeHelp')[0];
+  assert.equal(reopened.props['data-open'], true, 'clicking the icon opens the bubble');
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'First paragraph.\n\nSecond paragraph.',
+  );
+  await page.click('开始翻译');
+  assert.equal(calls.length, 1, 'the first pass is one document request');
+  assert.equal(calls[0].document, 'First paragraph.\n\nSecond paragraph.');
+  assert.deepEqual(calls[0].sentences, [], 'no segment lists ride along');
+  assert.match(page.text(), /整篇-第一段。/);
+  // The sentence boxes are derived from the paragraph translations.
+  await page.click('逐句对比');
+  assert.match(page.text(), /整篇-第一段。/, 'sentence boxes carry the derived translation');
+
+  // A merged reply cannot line up with the paragraphs: the same click falls
+  // back to the batched request automatically.
+  await page.click('新建翻译');
+  await page.flush();
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'First paragraph.\n\nSecond paragraph.',
+  );
+  await page.click('开始翻译');
+  await page.flush();
+  assert.equal(calls.length, 4, 'the whole-document pass plus the two fallback chunks');
+  assert.equal(calls[1].document, 'First paragraph.\n\nSecond paragraph.');
+  assert.equal(calls[2].document, undefined);
+  assert.deepEqual(calls[2].sentences, ['First paragraph.', 'Second paragraph.']);
+  assert.deepEqual(calls[3].paragraphs, ['First paragraph.', 'Second paragraph.']);
+  await page.click('逐段对比');
+  assert.match(page.text(), /逐段-第一段。/);
+});
+
+test('whole-document mode starts checked and sends the document request', async () => {
+  const calls = [];
+  const page = createPage({
+    noWholeDocPref: true,
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: (body) => {
+        calls.push(body);
+        return body.document
+          ? { document: '整篇-第一段。\n\n整篇-第二段。', model: 'm' }
+          : { sentences: ['逐段-第一句。'], paragraphs: ['逐段-第一段。'], model: 'm' };
+      },
+    },
+  });
+  await page.flush();
+  const modeSelect = page.hostNodes((node) => node.type === 'select' && node.props['aria-label'] === '翻译模式')[0];
+  assert.ok(modeSelect, 'the switch is on the landing form');
+  assert.equal(modeSelect.props.value, 'whole', 'whole-document mode is the default');
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'First paragraph.\n\nSecond paragraph.',
+  );
+  await page.click('开始翻译');
+  assert.equal(calls.length, 1, 'the first pass is one document request');
+  assert.equal(calls[0].document, 'First paragraph.\n\nSecond paragraph.');
+});
+
+test('whole-document mode splits the reply on blank lines even with irregular spacing', async () => {
+  const calls = [];
+  const page = createPage({
+    transMode: 'whole',
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: (body) => {
+        calls.push(body);
+        // The model joins the paragraphs with single newlines plus an extra
+        // blank line — the run of newlines still splits into two pieces.
+        return body.document
+          ? { document: '标记-第一段。\n\n\n标记-第二段。', model: 'm' }
+          : { sentences: [], paragraphs: [], model: 'm' };
+      },
+    },
+  });
+  await page.flush();
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'First paragraph.\n\nSecond paragraph.',
+  );
+  await page.click('开始翻译');
+  assert.equal(calls.length, 1, 'the plain reply lands without a fallback');
+  await page.click('逐段对比');
+  assert.match(page.text(), /标记-第一段。/);
+  assert.match(page.text(), /标记-第二段。/);
+});
+
+test('segment-array mode sends the paragraphs as one array and consumes the aligned reply', async () => {
+  const calls = [];
+  const page = createPage({
+    transMode: 'array',
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: (body) => {
+        calls.push(body);
+        return Array.isArray(body.document)
+          ? { paragraphs: body.document.map((source) => `数组-${source}`), model: 'm' }
+          : { sentences: [], paragraphs: [], model: 'm' };
+      },
+    },
+  });
+  await page.flush();
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'First paragraph.\n\nSecond paragraph.',
+  );
+  await page.click('开始翻译');
+  assert.equal(calls.length, 1, 'the whole document goes out as one array request');
+  assert.deepEqual(calls[0].document, ['First paragraph.', 'Second paragraph.']);
+  assert.deepEqual(calls[0].sentences, [], 'no segment lists ride along');
+  await page.click('逐段对比');
+  assert.match(page.text(), /数组-First paragraph\./);
+  assert.match(page.text(), /数组-Second paragraph\./);
+  assert.doesNotMatch(page.text(), /请求失败/, 'a successful array pass leaves no error notice');
+});
+
+test('segment-array mode falls back to the batched path when the reply does not line up', async () => {
+  const calls = [];
+  const page = createPage({
+    transMode: 'array',
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: (body) => {
+        calls.push(body);
+        if (Array.isArray(body.document)) {
+          // The model merged the paragraphs: the aligned array is unusable.
+          return { paragraphs: ['被合并成一整段的译文。'], model: 'm' };
+        }
+        return { sentences: ['逐段-第一句。', '逐段-第二句。'], paragraphs: ['逐段-第一段。', '逐段-第二段。'], model: 'm' };
+      },
+    },
+  });
+  await page.flush();
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'First paragraph.\n\nSecond paragraph.',
+  );
+  await page.click('开始翻译');
+  assert.equal(calls.length, 3, 'the array pass plus the two fallback chunks');
+  assert.equal(Array.isArray(calls[1].document), false, 'the fallback rides the segment lists');
+  await page.click('逐段对比');
+  assert.match(page.text(), /逐段-第一段。/);
+});
+
+test('a stored wholeDoc boolean migrates to the matching translation mode', () => {
+  const storage = makeStorage();
+  storage.setItem('dsh-translation-assistant:prefs:v2', JSON.stringify({ wholeDoc: false }));
+  const page = createPage({ storage, noWholeDocPref: true });
+  return page.flush().then(() => {
+    const modeSelect = page.hostNodes((node) => node.type === 'select' && node.props['aria-label'] === '翻译模式')[0];
+    assert.ok(modeSelect, 'the mode picker renders');
+    assert.equal(modeSelect.props.value, 'batch', 'wholeDoc false becomes the batched mode');
+  });
+});
+
+test('text without blank lines translates one paragraph per line in whole-document mode', async () => {
+  const calls = [];
+  const page = createPage({
+    transMode: 'whole',
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: (body) => {
+        calls.push(body);
+        return body.document
+          ? { document: '一行-甲。\n\n一行-乙。\n\n一行-丙。', model: 'm' }
+          : { sentences: [], paragraphs: [], model: 'm' };
+      },
+    },
+  });
+  await page.flush();
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'Line one.\nLine two.\nLine three.',
+  );
+  await page.click('开始翻译');
+  assert.equal(calls.length, 1, 'the whole document goes out in one request');
+  assert.equal(
+    calls[0].document,
+    'Line one.\nLine two.\nLine three.',
+    'the raw text rides the request without any marker injection',
+  );
+  await page.click('逐段对比');
+  assert.match(page.text(), /一行-甲。/);
+  assert.match(page.text(), /一行-丙。/);
+  // The full text carries one paragraph translation per line, in order.
+  await page.click('全文');
+  const fullText = fullTextBox(page);
+  assert.ok(fullText, 'the full-text view is reachable');
+  assert.match(fullText.props.value, /一行-甲。\n\n一行-乙。\n\n一行-丙。/);
+});
+
+test('the batched progress counter tracks paragraphs only, never sentences', async () => {
+  const calls = [];
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: (body) => {
+        calls.push(body);
+        // Hold the first three chunks in flight so the counter is observable.
+        if (calls.length <= 3) return gate;
+        return { sentences: [], paragraphs: [], model: 'm' };
+      },
+    },
+  });
+  await page.flush();
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'One. Two.\n\nThree. Four.\n\nFive. Six.\n\nSeven. Eight.\n\nNine. Ten.\n\nEleven. Twelve.\n\nThirteen. Fourteen.',
+  );
+  await page.click('开始翻译');
+  await page.flush();
+  assert.match(page.text(), /翻译中 0\/7/, 'the counter denominator is the paragraph count');
+  assert.doesNotMatch(page.text(), /翻译中 0\/21/, 'sentences never inflate the counter');
+  release({ sentences: new Array(14).fill('句。'), paragraphs: ['段一', '段二', '段三', '段四', '段五', '段六', '段七'], model: 'm' });
+  await page.flush();
+  assert.match(page.text(), /段一/, 'the translation lands after the held chunks resolve');
+  assert.doesNotMatch(page.text(), /翻译中/, 'the counter is gone once the pass finishes');
+  assert.doesNotMatch(page.text(), /请求失败/, 'a successful batched pass leaves no error notice behind');
+});
+
+test('a host that rejects document requests falls back to the batched path', async () => {
+  const calls = [];
+  const page = createPage({
+    transMode: 'whole',
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      translate: (body) => {
+        calls.push(body);
+        if (body.document) {
+          // An older Host only knows the segment lists.
+          return {
+            ok: false,
+            status: 400,
+            json: async () => ({ error: 'There is no text to translate.' }),
+          };
+        }
+        return { sentences: ['逐段-第一句。', '逐段-第二句。'], paragraphs: ['逐段-第一段。', '逐段-第二段。'], model: 'm' };
+      },
+    },
+  });
+  await page.flush();
+  await page.typeIn(
+    page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),
+    'First paragraph.\n\nSecond paragraph.',
+  );
+  await page.click('开始翻译');
+  await page.flush();
+  assert.equal(calls.length, 3, 'the document request plus the two batched chunks');
+  await page.click('逐段对比');
+  assert.match(page.text(), /逐段-第一段。/, 'the batched fallback lands the translation');
+  assert.doesNotMatch(page.text(), /请求内容不符合要求/, 'the rejection never reaches the user');
+});
+
 test('the sentence view offers scoring and suggestions per sentence', async () => {
   const prompts = [];
   const page = createPage({
@@ -970,7 +1436,7 @@ test('image OCR fills the source box and translates the recognized text', async 
       health: () => ({ ok: true, model: 'm' }),
       ocr: () => ({ text: '图片里的原文。', model: 'm' }),
       translate: (body) => {
-        assert.deepEqual(body.sentences, ['图片里的原文。']);
+        if (body.sentences.length) assert.deepEqual(body.sentences, ['图片里的原文。']);
         return { sentences: ['图片译文'], paragraphs: ['图片译文'], model: 'm' };
       },
     },
@@ -1191,9 +1657,10 @@ test('every translation lands in history and can be switched back or replaced', 
     storage,
     handlers: {
       health: () => ({ ok: true, model: 'm' }),
-      translate: () => {
-        round += 1;
-        return round === 1
+      translate: (body) => {
+        // Chunks arrive per list; key the reply off the text, not the count.
+        const first = String(body.sentences[0] || body.paragraphs[0] || '');
+        return first.startsWith('First')
           ? { sentences: ['甲句译文'], paragraphs: ['甲段译文'], model: 'm' }
           : { sentences: ['乙句译文'], paragraphs: ['乙段译文'], model: 'm' };
       },
@@ -1275,9 +1742,10 @@ test('deleting a history entry takes two clicks and falls back to the next entry
   const page = createPage({
     handlers: {
       health: () => ({ ok: true, model: 'm' }),
-      translate: () => {
-        round += 1;
-        return round === 1
+      translate: (body) => {
+        // Chunks arrive per list; key the reply off the text, not the count.
+        const first = String(body.sentences[0] || body.paragraphs[0] || '');
+        return first.startsWith('First')
           ? { sentences: ['甲句译文'], paragraphs: ['甲段译文'], model: 'm' }
           : { sentences: ['乙句译文'], paragraphs: ['乙段译文'], model: 'm' };
       },
@@ -1332,9 +1800,9 @@ test('history search filters on source or translation and clears again', async (
   const page = createPage({
     handlers: {
       health: () => ({ ok: true, model: 'm' }),
-      translate: () => {
-        round += 1;
-        return round === 1
+      translate: (body) => {
+        const first = String(body.sentences[0] || body.paragraphs[0] || '');
+        return first.startsWith('Transformer')
           ? { sentences: ['变压器论文。'], paragraphs: ['变压器论文。'], model: 'm' }
           : { sentences: ['营收报告。'], paragraphs: ['营收报告。'], model: 'm' };
       },
@@ -1424,9 +1892,10 @@ test('pinning a history entry keeps it on top across reloads', async () => {
     storage,
     handlers: {
       health: () => ({ ok: true, model: 'm' }),
-      translate: () => {
-        round += 1;
-        return round === 1
+      translate: (body) => {
+        // Chunks arrive per list; key the reply off the text, not the count.
+        const first = String(body.sentences[0] || body.paragraphs[0] || '');
+        return first.startsWith('First')
           ? { sentences: ['甲句译文'], paragraphs: ['甲段译文'], model: 'm' }
           : { sentences: ['乙句译文'], paragraphs: ['乙段译文'], model: 'm' };
       },

@@ -141,6 +141,48 @@ test('retranslate forwards the user instruction and strips wrapping quotes', asy
   assert.match(prompt, /Current translation/);
 });
 
+test('translateDocument keeps the blank-line protocol and sends the source as-is', async () => {
+  const llm = makeLlm(['你好。\n\n世界。']);
+  const engine = makeEngine(llm);
+  await engine.translateDocument({ source: 'Hello.\n\nWorld.', targetLanguage: '中文' });
+  const prompt = llm.calls[0].messages[0].content[0].text;
+  assert.match(prompt, /separated by blank lines/);
+  assert.match(prompt, /Hello\.\n\nWorld\./, 'the raw document rides the prompt untouched');
+});
+
+test('translateDocument returns an aligned array from the document JSON protocol', async () => {
+  const llm = makeLlm(['["你好。", "世界。"]']);
+  const engine = makeEngine(llm);
+  const out = await engine.translateDocument({
+    paragraphs: ['Hello.', 'World.'],
+    targetLanguage: '中文',
+  });
+  assert.deepEqual(out, ['你好。', '世界。']);
+  const prompt = llm.calls[0].messages[0].content[0].text;
+  assert.match(prompt, /exactly 2 translations/);
+  assert.match(prompt, /coherent across paragraphs/);
+});
+
+test('translateDocument falls back to per-paragraph calls when the JSON reply does not line up', async () => {
+  const llm = makeLlm((_options, index) => (index === 0 ? '["只有一段。"]' : `单段-${index}`));
+  const engine = makeEngine(llm);
+  const out = await engine.translateDocument({
+    paragraphs: ['Hello.', 'World.'],
+    targetLanguage: '中文',
+  });
+  assert.deepEqual(out, ['单段-1', '单段-2']);
+});
+
+test('translateDocument falls back to per-paragraph calls when the reply is not JSON', async () => {
+  const llm = makeLlm((_options, index) => (index === 0 ? '抱歉，这里没有 JSON。' : `单段-${index}`));
+  const engine = makeEngine(llm);
+  const out = await engine.translateDocument({
+    paragraphs: ['Hello.', 'World.'],
+    targetLanguage: '中文',
+  });
+  assert.deepEqual(out, ['单段-1', '单段-2']);
+});
+
 test('score parses fenced JSON, clamps, and keeps the comment', async () => {
   const llm = makeLlm(['```json\n{"score": 120, "comment": "意思到位但略生硬"}\n```']);
   const engine = makeEngine(llm);

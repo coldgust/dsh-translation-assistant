@@ -15,7 +15,7 @@ import { TranslationEngine } from './engine.js';
 
 const API_PREFIX = '/dsh-translation/api';
 /** Build marker surfaced by the health endpoint; bumped when Host behavior changes. */
-const HOST_REVISION = '5';
+const HOST_REVISION = '7';
 const MAX_BODY_BYTES = 24 * 1024 * 1024;
 const MAX_SEGMENTS = 400;
 const MAX_SEGMENT_CHARS = 20_000;
@@ -618,14 +618,49 @@ function createHandler(ctx, engine, settings, catalog) {
         ? undefined
         : readRoute(body, (await catalog()).models);
       if (pathname === `${API_PREFIX}/translate`) {
+        const targetLanguage = optionalLanguage(body, 'targetLanguage') ?? settings.targetLanguage;
+        const sourceLanguage = optionalLanguage(body, 'sourceLanguage') ?? settings.sourceLanguage;
+        // Whole-document mode: one request carries the full text and the
+        // reply keeps the paragraph structure for the client to split. The
+        // array form rides a validated JSON-array protocol; the string form
+        // is the legacy shape older clients send.
+        if (Array.isArray(body.document)) {
+          const documentBudget = { chars: 0 };
+          const documentParagraphs = readSegments(body, 'document', documentBudget);
+          if (documentParagraphs.length === 0) {
+            throw httpError(400, 'There is no text to translate.');
+          }
+          const translated = await engine.translateDocument({
+            paragraphs: documentParagraphs,
+            targetLanguage,
+            sourceLanguage,
+            route,
+          });
+          sendJson(response, 200, {
+            paragraphs: translated,
+            document: translated.join('\n\n'),
+            targetLanguage,
+            model: engine.modelLabel(route),
+          });
+          return;
+        }
+        const document = optionalText(body, 'document', MAX_DOCUMENT_CHARS);
+        if (document) {
+          const translated = await engine.translateDocument({
+            source: document,
+            targetLanguage,
+            sourceLanguage,
+            route,
+          });
+          sendJson(response, 200, { document: translated, targetLanguage, model: engine.modelLabel(route) });
+          return;
+        }
         const budget = { chars: 0 };
         const sentences = readSegments(body, 'sentences', budget);
         const paragraphs = readSegments(body, 'paragraphs', budget);
         if (sentences.length === 0 && paragraphs.length === 0) {
           throw httpError(400, 'There is no text to translate.');
         }
-        const targetLanguage = optionalLanguage(body, 'targetLanguage') ?? settings.targetLanguage;
-        const sourceLanguage = optionalLanguage(body, 'sourceLanguage') ?? settings.sourceLanguage;
         const [translatedSentences, translatedParagraphs] = await Promise.all([
           sentences.length > 0
             ? engine.translateBatch({ segments: sentences, kind: 'sentence', targetLanguage, sourceLanguage, route })
@@ -643,12 +678,16 @@ function createHandler(ctx, engine, settings, catalog) {
         return;
       }
       if (pathname === `${API_PREFIX}/retranslate`) {
-        const source = requiredText(body, 'source', MAX_SEGMENT_CHARS);
-        const translation = optionalText(body, 'translation', MAX_SEGMENT_CHARS);
+        const kind = ['sentence', 'paragraph', 'document'].includes(body.kind) ? body.kind : 'sentence';
+        const isDocument = kind === 'document';
+        const source = requiredText(body, 'source', isDocument ? MAX_DOCUMENT_CHARS : MAX_SEGMENT_CHARS);
+        const translation = optionalText(body, 'translation', isDocument ? MAX_DOCUMENT_CHARS : MAX_SEGMENT_CHARS);
+        if (isDocument && source.length + (translation?.length ?? 0) > MAX_DOCUMENT_TOTAL_CHARS) {
+          throw httpError(400, `The document exceeds the ${MAX_DOCUMENT_TOTAL_CHARS} character limit.`);
+        }
         const extraPrompt = optionalText(body, 'extraPrompt', 2_000);
         const targetLanguage = optionalLanguage(body, 'targetLanguage') ?? settings.targetLanguage;
         const sourceLanguage = optionalLanguage(body, 'sourceLanguage') ?? settings.sourceLanguage;
-        const kind = body.kind === 'paragraph' ? 'paragraph' : 'sentence';
         const revised = await engine.retranslate({
           source,
           translation,

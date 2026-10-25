@@ -49,7 +49,7 @@ If you prefer files or want to script the setup, edit the profile's `package.jso
     }
   },
   "dependencies": {
-    "dsh-translation-assistant": "^1.11.1"
+    "dsh-translation-assistant": "^1.16.2"
   }
 }
 ```
@@ -77,22 +77,34 @@ Then run `pnpm install` in that directory and restart Harness. Keep the profile'
 
 ### Translate
 
-- **Two views from one request** — `By paragraph` is the default; `By sentence` switches granularity. A single request returns both, so switching costs nothing.
+- **Two views from one translation** — `By paragraph` is the default; `By sentence` switches granularity. Both come back in one pass, so switching costs nothing. In batched mode chunks run three at a time and the header shows live `Translating n/m` progress, counted in paragraphs (sentences ride along in the same pass and are not counted).
+- **Three translation modes (coherence first by default)** — the mode dropdown on the new-translation form and in the full-text card picks one of three; the help icon next to it spells out the differences on hover:
+  - **Coherence first** — the full text goes to the model in one request for the fullest context and the most coherent wording. The source rides the request untouched; the Host prompt asks the model to keep the paragraph structure, and the reply is split back on blank lines. A reply that does not line up falls back to the batched path automatically.
+  - **Alignment first** — the paragraphs go out as one JSON array and the model must answer with an equally long array, so paragraph alignment is the strongest; the Host falls back to per-paragraph calls when the model ignores the array.
+  - **Speed first** — chunks run three at a time (16 sentences or 6 paragraphs each), the fastest option with a live `Translating n/m` counter; each chunk is translated on its own, so wording is less coherent across paragraphs.
+  - Every mode has the same safety net: when the reply does not line up, the Host predates the protocol, or the text is too long, the pass silently falls back to batching — no error reaches you.
+
+  | Mode | Trait | Best for |
+  | --- | --- | --- |
+  | Coherence first | One request for the full text, the fullest context | Essays, reports — anything read as prose; the default |
+  | Alignment first | JSON-array protocol, the strongest paragraph alignment | Glossaries, subtitles, strict side-by-side layouts |
+  | Speed first | Chunked three-way concurrency, fastest on long texts | Time-boxed bulk jobs; when cross-paragraph flow matters less |
+
 - **Files** — drop or pick `.txt`, `.md`, `.log`, `.html`, `.htm`, or `.docx`. Word files are unpacked in the browser (no library, and the original never leaves the machine); HTML loses scripts, styles, and the head first, so only visible prose reaches the model.
 - **Images** — paste a screenshot or pick one; it is downscaled to a 2048 px long edge, sent as JPEG, transcribed, and translated.
 
 ### Review and refine
 
 - **Every segment is editable** — source and translation sit side by side and stay in step across all three views: editing a sentence re-joins its paragraph, editing a paragraph splits back over its sentences, and text is never cut mid-sentence.
-- **Full text** — `Translation` (editable), `Source`, or `Compare` (side by side, stacked on narrow screens). Edits are split on blank lines and written back onto the matching segments; copying and document-level scoring live here.
-- **Retranslate** — `AI retranslate` redoes one segment; `Retranslate with prompt` adds an instruction such as "more colloquial" or "keep the legal terms".
+- **Full text** — `Translation` (editable), `Source`, or `Compare` (side by side, stacked on narrow screens). Edits are split on blank lines — or one paragraph per line when the text has no blank lines — and written back onto the matching segments; copying and document-level scoring live here.
+- **Retranslate** — `AI retranslate` redoes one segment; `Retranslate with prompt` adds an instruction such as "more colloquial" or "keep the legal terms". Both also work from the full-text view and follow the translation mode: coherence and alignment modes send one request for the entire document split back into paragraphs; speed-first mode runs per-paragraph concurrency with progress. Each pass leaves one revision.
 - **Score on demand** — scores stay hidden on every load. Score one segment, the current view, or the whole document, then reveal them from the toolbar. Editing a translation clears the score it invalidated.
 - **Turn feedback into a rewrite** — `Apply suggestion` under a score sends that score and its comment back as the instruction for a fresh pass; `Apply all` does the same for every scored segment in the view, three at a time. While scores are hidden, no suggestion button is shown.
 
 ### Keep track
 
 - **On-device history** — up to 200 documents with title, time, language pair, and segment counts. Search matches source or translation and quotes the hit in context; pin an entry to keep it on top, delete in two clicks.
-- **Revisions** — up to 20 labelled snapshots per document: the machine baseline, one before every AI pass, one before each rollback. The drawer says how many segments differ from the current text, and `Restore` puts one back — the text it replaces is snapshotted too, so a rollback can itself be undone.
+- **Revisions** — up to 100 labelled snapshots per document: the machine baseline, one before every AI pass, one before each rollback. The drawer says how many segments differ from the current text, and `Restore` puts one back — the text it replaces is snapshotted too, so a rollback can itself be undone.
 
 ![The history drawer: search, pinned entries, and the document counts](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/history.png)
 
@@ -139,8 +151,8 @@ The page talks to the Host through same-origin calls:
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /dsh-translation/api/health` | Service state, the resolved model label, the profile default, the switchable model list (grouped by provider), and per-provider listing failures. |
-| `POST …/translate` | Translate a `sentences` / `paragraphs` array in one request. |
-| `POST …/retranslate` | Redo one segment, optionally with `extraPrompt`. |
+| `POST …/translate` | Translate a `sentences` / `paragraphs` array in one request; or a whole `document` in a single call — the raw text, answered with a document that keeps the paragraph structure, or a paragraph array answered with an aligned array. |
+| `POST …/retranslate` | Redo one segment or the whole document (`kind: document`), optionally with `extraPrompt`. |
 | `POST …/score` | Score one segment (0–100 plus a one-sentence comment). |
 | `POST …/score-document` | Score a whole source/translation pair. |
 | `POST …/ocr` | Transcribe an image (`image` as base64 + media type). |
@@ -159,7 +171,7 @@ All fields are optional and live in the plugin row (`cordis.patch.yml` or Plugin
 | `targetLanguage` | Chinese | Default target language. |
 | `sourceLanguage` | unset (auto-detect) | Default source language; the page can override it. |
 | `maxTokens` | `8192` | Output limit for translation calls. |
-| `retranslateMaxTokens` | `4096` | Output limit for retranslation. |
+| `retranslateMaxTokens` | `4096` | Output limit for per-segment retranslation; whole-document retranslation (coherence/alignment modes) uses the general default. |
 | `scoreMaxTokens` | `4096` | Output limit for scoring. |
 | `ocrMaxTokens` | `4096` | Output limit for image transcription. |
 | `maxRetries` | `1` | Retries for transient provider failures. |
@@ -172,17 +184,17 @@ All fields are optional and live in the plugin row (`cordis.patch.yml` or Plugin
 
 | Key | Content |
 | --- | --- |
-| `dsh-translation-assistant:history:v1` | Up to 200 entries (~2 M characters), pinned first and then most recently used. Each entry carries its own revision snapshots (up to 20, 200,000 characters per document). |
+| `dsh-translation-assistant:history:v1` | Up to 200 entries (~2 M characters), pinned first and then most recently used. Each entry carries its own revision snapshots (up to 100, 200,000 characters per document). |
 | `dsh-translation-assistant:session:v1` | The id of the document that was open last. |
-| `dsh-translation-assistant:prefs:v2` | Source/target language, comparison view, full-text display mode, and the picked model route (or `null` to follow the default). |
+| `dsh-translation-assistant:prefs:v2` | Source/target language, comparison view, full-text display mode, the translation mode, and the picked model route (or `null` to follow the default). |
 | `dsh-translation-assistant:document:v1` | Legacy single-document key from 1.1.x: adopted into history on first boot, then cleared. |
 
 History, edits, and preferences never leave the browser; only the text being translated, retranslated, scored, or read from an image is sent to the model route. Clearing site data for the Harness origin erases the history — there is no server-side copy.
 
 ## Limits
 
-- A translation request accepts up to 400 segments, 20,000 characters per segment, and 120,000 characters in total.
-- Revisions keep the latest 20 snapshots per document within 200,000 characters; older snapshots are dropped first. They count against the history budget, so a heavily iterated document may evict older documents.
+- A translation request accepts up to 400 segments, 20,000 characters per segment, and 120,000 characters in total. Whole-document requests cap at 60,000 characters; anything longer switches to batching automatically.
+- Revisions keep the latest 100 snapshots per document within 200,000 characters; older snapshots are dropped first. They count against the history budget, so a heavily iterated document may evict older documents.
 - Document scoring accepts up to 60,000 characters on each side (120,000 combined).
 - Images: PNG, JPEG, WebP, or GIF, up to 12 MiB each and 24 MiB per request.
 - Imported files: up to 8 MiB each, and the extracted text still has to fit the 120,000-character translation budget. `.docx` unpacking needs the browser's `DecompressionStream` (Chrome 80+, Firefox 113+, Safari 16.4+); elsewhere the page asks for `.txt`, `.md`, or `.html` instead.
@@ -194,7 +206,7 @@ History, edits, and preferences never leave the browser; only the text being tra
 This directory is the installed bundle (the profile links it), so `client.js` is picked up by the artifact watcher and swapped into the open page; Host changes (`host/index.js`, `host/engine.js`) apply after the next Harness restart.
 
 ```bash
-# 86 unit/integration tests: engine (translation/retranslation/scoring/OCR),
+# 106 unit/integration tests: engine (translation/retranslation/scoring/OCR),
 # the HTTP handler, model-catalog discovery and route overrides, and the page
 # rendered through a minimal React harness (no browser needed).
 node --test 'test/*.test.mjs'
