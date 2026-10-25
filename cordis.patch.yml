@@ -13,3 +13,10 @@
         scoreRetries: 1
         ocrMaxTokens: 4096
         concurrency: 3
+        # Optional extra routes for the header model picker. The Host merges
+        # these with the models its LLM registry advertises, so this list is
+        # only needed to annotate or pin a route.
+        # models:
+        #   - provider: deepseek-account
+        #     model: deepseek-pro
+        #     label: DeepSeek Pro

@@ -15,7 +15,7 @@ import { TranslationEngine } from './engine.js';
 
 const API_PREFIX = '/dsh-translation/api';
 /** Build marker surfaced by the health endpoint; bumped when Host behavior changes. */
-const HOST_REVISION = '3';
+const HOST_REVISION = '5';
 const MAX_BODY_BYTES = 24 * 1024 * 1024;
 const MAX_SEGMENTS = 400;
 const MAX_SEGMENT_CHARS = 20_000;
@@ -23,6 +23,9 @@ const MAX_TOTAL_CHARS = 120_000;
 const MAX_DOCUMENT_CHARS = 60_000;
 const MAX_DOCUMENT_TOTAL_CHARS = 120_000;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_MODEL_NAME_CHARS = 120;
+/** How long a discovered model list is reused before the service is asked again. */
+const MODEL_CACHE_MS = 60_000;
 const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 /**
@@ -55,6 +58,9 @@ function normalizeSettings(config) {
     paragraphChunk: positiveInt(raw.paragraphChunk, 6),
     concurrency: positiveInt(raw.concurrency, 3),
     toolEnabled: raw.tool !== false,
+    // A hand-written list the page can offer when the Host cannot enumerate
+    // models itself; merged with whatever discovery finds.
+    models: Array.isArray(raw.models) ? raw.models : [],
   };
 }
 
@@ -73,7 +79,28 @@ function resolveTarget(ctx, settings) {
       ...(settings.reasoningEffort ? { reasoningEffort: settings.reasoningEffort } : {}),
     };
   }
-  const defaults = ctx.get('agentDefaultModel');
+  const selection = readDefaultSelection(ctx);
+  if (!selection) return undefined;
+  return {
+    provider: selection.provider,
+    model: selection.model,
+    ...(settings.reasoningEffort ? { reasoningEffort: settings.reasoningEffort } : {}),
+  };
+}
+
+/**
+ * Read the profile's default model selection without trusting the service to
+ * be mounted or well-behaved.
+ * @param {object} ctx - Host plugin context.
+ * @returns {{ provider: string, model: string } | undefined} selection.
+ */
+function readDefaultSelection(ctx) {
+  let defaults;
+  try {
+    defaults = ctx.get('agentDefaultModel');
+  } catch {
+    return undefined;
+  }
   if (!defaults || typeof defaults.currentSelection !== 'function') return undefined;
   let selection;
   try {
@@ -82,11 +109,215 @@ function resolveTarget(ctx, settings) {
     return undefined;
   }
   if (!selection || !selection.provider || !selection.model) return undefined;
-  return {
-    provider: selection.provider,
-    model: selection.model,
-    ...(settings.reasoningEffort ? { reasoningEffort: settings.reasoningEffort } : {}),
+  return { provider: String(selection.provider), model: String(selection.model) };
+}
+
+/**
+ * Normalize one model descriptor from any of the shapes the Host services use.
+ * @param {unknown} value - `"provider/model"`, `{ provider, model }`, or `{ providerId, modelId }`.
+ * @param {string} [providerHint] - provider to assume when the value omits it.
+ * @returns {{ provider: string, model: string, label?: string, reasoningEffort?: string } | null} entry.
+ */
+function normalizeModelEntry(value, providerHint) {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    const slash = text.indexOf('/');
+    if (slash <= 0 || slash === text.length - 1) {
+      return providerHint && text ? normalizeModelEntry({ provider: providerHint, model: text }) : null;
+    }
+    return normalizeModelEntry({ provider: text.slice(0, slash), model: text.slice(slash + 1) });
+  }
+  if (!value || typeof value !== 'object') return null;
+  const pick = (...names) => {
+    for (const name of names) {
+      const raw = value[name];
+      if (typeof raw === 'string' && raw.trim()) return raw.trim();
+    }
+    return '';
   };
+  const provider = pick('provider', 'providerId', 'providerName') || (providerHint ?? '');
+  const model = pick('model', 'modelId', 'id');
+  if (!provider || !model) return null;
+  if (provider.length > MAX_MODEL_NAME_CHARS || model.length > MAX_MODEL_NAME_CHARS) return null;
+  const label = pick('label', 'displayName', 'title', 'name');
+  const reasoningEffort = pick('reasoningEffort');
+  return {
+    provider,
+    model,
+    ...(label ? { label } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+  };
+}
+
+/**
+ * Flatten one catalog-ish payload into model entries. Accepts an array of
+ * models, an array of providers that each carry `models`, or a single entry.
+ * @param {unknown} value - payload returned by a Host service.
+ * @param {string} [providerHint] - provider inherited from the parent object.
+ * @param {object[]} out - accumulator.
+ */
+function collectModelEntries(value, providerHint, out) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectModelEntries(item, providerHint, out);
+    return;
+  }
+  if (!value || typeof value !== 'object') {
+    const single = normalizeModelEntry(value, providerHint);
+    if (single) out.push(single);
+    return;
+  }
+  if (Array.isArray(value.models)) {
+    const provider = providerHint
+      || (typeof value.provider === 'string' && value.provider)
+      || (typeof value.providerId === 'string' && value.providerId)
+      || (typeof value.id === 'string' && value.id)
+      || (typeof value.name === 'string' && value.name)
+      || undefined;
+    for (const item of value.models) {
+      const entry = normalizeModelEntry(item, provider);
+      if (entry) out.push(entry);
+    }
+    return;
+  }
+  const single = normalizeModelEntry(value, providerHint);
+  if (single) out.push(single);
+}
+
+/**
+ * Ask one service for its model list, trying the method names these services
+ * have used across Host versions.
+ * @param {unknown} source - service instance.
+ * @param {string[]} methods - candidate method names, in preference order.
+ * @returns {Promise<object[]>} normalized entries, empty when nothing answers.
+ */
+async function readModelSource(source, methods) {
+  if (!source || (typeof source !== 'object' && typeof source !== 'function')) return [];
+  for (const method of methods) {
+    let fn;
+    try {
+      fn = source[method];
+    } catch {
+      continue;
+    }
+    if (typeof fn !== 'function') continue;
+    let value;
+    try {
+      value = await fn.call(source);
+    } catch {
+      continue;
+    }
+    const entries = [];
+    collectModelEntries(value, undefined, entries);
+    if (entries.length > 0) return entries;
+  }
+  return [];
+}
+
+/**
+ * Enumerate the models the Host's own LLM registry can route to.
+ *
+ * This is the documented path (`@deepseek-ai/dsh-llm`): `listProviders()`
+ * names the registered routes and `listModels(providerId)` asks each adapter
+ * for the models it serves. `listModels` takes a provider id — calling it
+ * without one throws, which is why the generic service probe below cannot
+ * discover anything on its own. One failing provider must not hide the rest,
+ * so every route is isolated and its diagnostic is reported separately.
+ * @param {object} ctx - Host plugin context.
+ * @returns {Promise<{ entries: object[], failures: { provider: string, message: string }[] }>} catalog.
+ */
+async function readAdapterCatalog(ctx) {
+  const empty = { entries: [], failures: [] };
+  const llm = ctx && ctx.llm;
+  if (!llm || typeof llm.listProviders !== 'function' || typeof llm.listModels !== 'function') return empty;
+  let providers;
+  try {
+    providers = llm.listProviders();
+  } catch {
+    return empty;
+  }
+  if (!Array.isArray(providers)) return empty;
+  const entries = [];
+  const failures = [];
+  for (const provider of providers) {
+    const providerId = provider && typeof provider.id === 'string' ? provider.id.trim() : '';
+    if (!providerId) continue;
+    let models;
+    try {
+      models = await llm.listModels(providerId);
+    } catch (error) {
+      // A provider with an expired credential or an unreachable listing
+      // endpoint contributes no candidates; keep the failure for the tooltip
+      // so an empty picker is diagnosable instead of mysterious.
+      failures.push({
+        provider: providerId,
+        message: error && error.message ? String(error.message) : 'model listing failed',
+      });
+      continue;
+    }
+    if (!Array.isArray(models)) continue;
+    const providerLabel = typeof provider.name === 'string' && provider.name.trim() ? provider.name.trim() : '';
+    for (const model of models) {
+      if (!model || typeof model !== 'object') continue;
+      const id = typeof model.id === 'string' ? model.id.trim() : '';
+      if (!id) continue;
+      const entry = normalizeModelEntry({ provider: providerId, model: id, name: model.name });
+      if (!entry) continue;
+      entries.push(providerLabel ? { ...entry, providerLabel } : entry);
+    }
+  }
+  return { entries, failures };
+}
+
+/** Service names that may own a model catalog, in preference order. */
+const MODEL_SERVICES = ['modelCatalog', 'agentModels', 'providers', 'models'];
+/** Method names such a service may expose, in preference order. */
+const MODEL_METHODS = ['listModels', 'list', 'options', 'available', 'candidates', 'getModels', 'all'];
+
+/**
+ * Build the switchable model list: the plugin config, the models the Host's
+ * LLM registry advertises, whatever an older catalog service exposes, plus the
+ * routes that are currently in use. Discovery is best-effort — a missing or
+ * failing service must never break translation.
+ * @param {object} ctx - Host plugin context.
+ * @param {object} settings - resolved settings.
+ * @returns {Promise<{ models: object[], failures: { provider: string, message: string }[] }>} catalog.
+ */
+async function discoverModels(ctx, settings) {
+  const entries = [];
+  const seen = new Set();
+  const add = (entry) => {
+    if (!entry) return;
+    const key = `${entry.provider}/${entry.model}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    entries.push(entry);
+  };
+  // A hand-written config list wins, so a deployment can annotate or pin the
+  // routes it cares about even when the registry advertises more.
+  for (const entry of settings.models) add(normalizeModelEntry(entry));
+  const registry = await readAdapterCatalog(ctx);
+  for (const entry of registry.entries) add(entry);
+  if (entries.length === 0) {
+    // Older or alternative Hosts expose a catalog service instead of, or in
+    // addition to, the LLM registry. Only pay for the probes when the
+    // documented path found nothing.
+    for (const name of MODEL_SERVICES) {
+      let service;
+      try {
+        service = ctx.get(name);
+      } catch {
+        service = undefined;
+      }
+      if (!service) continue;
+      for (const entry of await readModelSource(service, MODEL_METHODS)) add(entry);
+    }
+    for (const entry of await readModelSource(ctx.llm, ['listModels', 'models'])) add(entry);
+  }
+  // The routes in use always belong in the list, even when discovery found
+  // nothing: they are what the page can honestly offer.
+  add(resolveTarget(ctx, settings));
+  add(readDefaultSelection(ctx));
+  return { models: entries, failures: registry.failures };
 }
 
 /**
@@ -250,6 +481,42 @@ function readSegments(body, field, totalBudget) {
 }
 
 /**
+ * Read the optional per-request model override and check it against the
+ * catalog the health endpoint advertises.
+ * @param {Record<string, unknown>} body - parsed body.
+ * @param {object[]} models - catalog entries.
+ * @returns {{ provider: string, model: string, reasoningEffort?: string } | undefined} route.
+ */
+function readRoute(body, models) {
+  const raw = body.route;
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw httpError(400, '"route" must be an object with provider and model.', 'BAD_ROUTE');
+  }
+  const provider = typeof raw.provider === 'string' ? raw.provider.trim() : '';
+  const model = typeof raw.model === 'string' ? raw.model.trim() : '';
+  if (!provider || !model) throw httpError(400, '"route" needs both provider and model.', 'BAD_ROUTE');
+  if (provider.length > MAX_MODEL_NAME_CHARS || model.length > MAX_MODEL_NAME_CHARS) {
+    throw httpError(400, '"route" is too long.', 'BAD_ROUTE');
+  }
+  const match = models.find((entry) => entry.provider === provider && entry.model === model);
+  // An empty catalog means discovery found nothing; accept the shape and let
+  // the model service be the judge instead of failing every request.
+  if (models.length > 0 && !match) {
+    throw httpError(
+      400,
+      'The selected model is no longer available. Reload the page and pick another one.',
+      'UNKNOWN_ROUTE',
+    );
+  }
+  return {
+    provider,
+    model,
+    ...(match && match.reasoningEffort ? { reasoningEffort: match.reasoningEffort } : {}),
+  };
+}
+
+/**
  * Map an engine failure onto an HTTP status.
  * @param {unknown} error - thrown value.
  * @returns {number} HTTP status code.
@@ -269,9 +536,10 @@ function statusForError(error) {
  * @param {object} ctx - Host plugin context.
  * @param {TranslationEngine} engine - translation engine.
  * @param {object} settings - resolved settings.
+ * @param {() => Promise<object[]>} catalog - model list provider.
  * @returns {(request: import('node:http').IncomingMessage, response: import('node:http').ServerResponse) => Promise<void>} handler.
  */
-function createHandler(ctx, engine, settings) {
+function createHandler(ctx, engine, settings, catalog) {
   return async function handle(request, response) {
     let url;
     try {
@@ -287,12 +555,34 @@ function createHandler(ctx, engine, settings) {
           sendJson(response, 405, { error: 'Use GET for the health endpoint.' });
           return;
         }
+        let models = [];
+        let failures = [];
+        try {
+          const found = await catalog();
+          models = found.models;
+          failures = found.failures;
+        } catch {
+          models = [];
+          failures = [];
+        }
+        // The profile's own default, reported separately from the route in
+        // use: the page labels “follow the default” with it even after the
+        // user picks another model.
+        const fallback = readDefaultSelection(ctx);
         sendJson(response, 200, {
           ok: true,
           revision: HOST_REVISION,
           model: engine.modelLabel(),
+          default: fallback ? { provider: fallback.provider, model: fallback.model } : null,
+          models: models.map((entry) => ({
+            provider: entry.provider,
+            model: entry.model,
+            ...(entry.label ? { label: entry.label } : {}),
+            ...(entry.providerLabel ? { providerLabel: entry.providerLabel } : {}),
+          })),
+          modelFailures: failures,
           targetLanguage: settings.targetLanguage,
-          features: ['translate', 'retranslate', 'score', 'score-document', 'ocr'],
+          features: ['translate', 'retranslate', 'score', 'score-document', 'ocr', 'models'],
         });
         return;
       }
@@ -322,6 +612,11 @@ function createHandler(ctx, engine, settings) {
         }
       }
       const body = await readJsonBody(request);
+      // Only pay for catalog discovery when the caller actually overrides the
+      // model; the common path keeps talking to the configured route.
+      const route = body.route === undefined || body.route === null
+        ? undefined
+        : readRoute(body, (await catalog()).models);
       if (pathname === `${API_PREFIX}/translate`) {
         const budget = { chars: 0 };
         const sentences = readSegments(body, 'sentences', budget);
@@ -333,17 +628,17 @@ function createHandler(ctx, engine, settings) {
         const sourceLanguage = optionalLanguage(body, 'sourceLanguage') ?? settings.sourceLanguage;
         const [translatedSentences, translatedParagraphs] = await Promise.all([
           sentences.length > 0
-            ? engine.translateBatch({ segments: sentences, kind: 'sentence', targetLanguage, sourceLanguage })
+            ? engine.translateBatch({ segments: sentences, kind: 'sentence', targetLanguage, sourceLanguage, route })
             : [],
           paragraphs.length > 0
-            ? engine.translateBatch({ segments: paragraphs, kind: 'paragraph', targetLanguage, sourceLanguage })
+            ? engine.translateBatch({ segments: paragraphs, kind: 'paragraph', targetLanguage, sourceLanguage, route })
             : [],
         ]);
         sendJson(response, 200, {
           sentences: translatedSentences,
           paragraphs: translatedParagraphs,
           targetLanguage,
-          model: engine.modelLabel(),
+          model: engine.modelLabel(route),
         });
         return;
       }
@@ -361,8 +656,9 @@ function createHandler(ctx, engine, settings) {
           kind,
           targetLanguage,
           sourceLanguage,
+          route,
         });
-        sendJson(response, 200, { translation: revised, kind, model: engine.modelLabel() });
+        sendJson(response, 200, { translation: revised, kind, model: engine.modelLabel(route) });
         return;
       }
       if (pathname === `${API_PREFIX}/score-document`) {
@@ -373,8 +669,8 @@ function createHandler(ctx, engine, settings) {
         }
         const targetLanguage = optionalLanguage(body, 'targetLanguage') ?? settings.targetLanguage;
         const sourceLanguage = optionalLanguage(body, 'sourceLanguage') ?? settings.sourceLanguage;
-        const scored = await engine.scoreDocument({ source, translation, targetLanguage, sourceLanguage });
-        sendJson(response, 200, { ...scored, model: engine.modelLabel() });
+        const scored = await engine.scoreDocument({ source, translation, targetLanguage, sourceLanguage, route });
+        sendJson(response, 200, { ...scored, model: engine.modelLabel(route) });
         return;
       }
       if (pathname === `${API_PREFIX}/ocr`) {
@@ -404,10 +700,10 @@ function createHandler(ctx, engine, settings) {
           ...(name ? { name } : {}),
         }]);
         const image = refs[0];
-        const text = await engine.ocr({ image });
+        const text = await engine.ocr({ image, route });
         sendJson(response, 200, {
           text,
-          model: engine.modelLabel(),
+          model: engine.modelLabel(route),
           image: { width: image.width, height: image.height, bytes: image.bytes },
         });
         return;
@@ -423,8 +719,9 @@ function createHandler(ctx, engine, settings) {
         kind,
         targetLanguage,
         sourceLanguage,
+        route,
       });
-      sendJson(response, 200, { ...scored, kind, model: engine.modelLabel() });
+      sendJson(response, 200, { ...scored, kind, model: engine.modelLabel(route) });
     } catch (error) {
       const status = statusForError(error);
       if (status >= 500) {
@@ -581,10 +878,40 @@ export function apply(ctx, config) {
     resolveTarget: () => resolveTarget(ctx, settings),
   });
 
+  // Discovery walks optional Host services and may await them, so the result is
+  // cached: the page asks on every boot, and switch validation reuses the same
+  // list instead of re-probing the services for each request.
+  let catalogCache = { at: 0, value: { models: [], failures: [] } };
+  const catalog = async () => {
+    if (catalogCache.at > 0 && Date.now() - catalogCache.at < MODEL_CACHE_MS) return catalogCache.value;
+    let value = { models: [], failures: [] };
+    try {
+      value = await discoverModels(ctx, settings);
+    } catch (error) {
+      console.error('[translation-assistant] model discovery failed:', error && error.message ? error.message : error);
+      value = { models: [], failures: [] };
+    }
+    catalogCache = { at: Date.now(), value };
+    return value;
+  };
+
+  // Adding a provider in Settings → Models re-registers adapter routes; drop
+  // the cached list so the page can offer the new model without a restart.
+  if (typeof ctx.on === 'function') {
+    try {
+      ctx.on('llm/adapters-updated', () => {
+        catalogCache = { at: 0, value: { models: [], failures: [] } };
+      });
+    } catch {
+      // Listening is an optimization; a Host without this event still works
+      // with the plain TTL.
+    }
+  }
+
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: API_PREFIX,
-    handler: createHandler(ctx, engine, settings),
+    handler: createHandler(ctx, engine, settings, catalog),
   }), 'translation-assistant: http api');
 
   const tools = ctx.get('tools');

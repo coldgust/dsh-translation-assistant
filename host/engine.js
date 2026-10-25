@@ -411,19 +411,25 @@ export class TranslationEngine {
   }
 
   /**
+   * Resolve the route for one call: an explicit per-request override wins over
+   * the configured/default route, so the page can switch models without
+   * touching the plugin config.
+   * @param {{ provider?: string, model?: string, reasoningEffort?: string } | null} [route] - requested route.
    * @returns {{ provider: string, model: string, reasoningEffort?: string } | undefined} current route.
    */
-  target() {
-    const target = this.resolveTarget();
+  target(route) {
+    const picked = route && typeof route === 'object' && route.provider && route.model ? route : undefined;
+    const target = picked ?? this.resolveTarget();
     if (!target || !target.provider || !target.model) return undefined;
     return target;
   }
 
   /**
-   * @returns {string | null} `provider/model` label for the current route.
+   * @param {{ provider?: string, model?: string } | null} [route] - requested route.
+   * @returns {string | null} `provider/model` label for the resolved route.
    */
-  modelLabel() {
-    const target = this.target();
+  modelLabel(route) {
+    const target = this.target(route);
     return target ? `${target.provider}/${target.model}` : null;
   }
 
@@ -433,11 +439,12 @@ export class TranslationEngine {
    * @param {string} request.system - system prompt.
    * @param {string} request.user - user prompt.
    * @param {number} [request.maxTokens] - output token limit.
+   * @param {{ provider?: string, model?: string, reasoningEffort?: string } | null} [request.route] - per-call model override.
    * @param {AbortSignal} [request.signal] - caller cancellation.
    * @returns {Promise<string>} trimmed completion text.
    */
   async _streamOnce(request) {
-    const target = this.target();
+    const target = this.target(request.route);
     if (!target) {
       const error = new Error(
         'No model route is available. Set provider and model in the plugin config, or choose a default model first.',
@@ -501,6 +508,7 @@ export class TranslationEngine {
    * @param {string} request.system - system prompt.
    * @param {string} request.user - user prompt.
    * @param {number} [request.maxTokens] - output token limit.
+   * @param {{ provider?: string, model?: string } | null} [request.route] - per-call model override.
    * @param {AbortSignal} [request.signal] - caller cancellation.
    * @returns {Promise<string>} trimmed completion text.
    */
@@ -532,6 +540,7 @@ export class TranslationEngine {
    * @param {'sentence' | 'paragraph'} request.kind - segment kind.
    * @param {string} request.targetLanguage - target language name.
    * @param {string} [request.sourceLanguage] - source language name.
+   * @param {{ provider?: string, model?: string } | null} [request.route] - per-call model override.
    * @param {AbortSignal} [request.signal] - caller cancellation.
    * @returns {Promise<string[]>} translations aligned with `segments`.
    */
@@ -561,6 +570,7 @@ export class TranslationEngine {
    * @param {'sentence' | 'paragraph'} request.kind - segment kind.
    * @param {string} request.targetLanguage - target language name.
    * @param {string} [request.sourceLanguage] - source language name.
+   * @param {{ provider?: string, model?: string } | null} [request.route] - per-call model override.
    * @param {AbortSignal} [request.signal] - caller cancellation.
    * @returns {Promise<string[]>} aligned translations for the chunk.
    */
@@ -571,6 +581,7 @@ export class TranslationEngine {
       raw = await this._complete({
         system: TRANSLATE_SYSTEM,
         user: batchTranslatePrompt(chunk, kind, targetLanguage, sourceLanguage),
+        route: request.route,
         signal,
       });
     } catch (error) {
@@ -593,6 +604,7 @@ export class TranslationEngine {
       const text = await this._complete({
         system: TRANSLATE_SYSTEM,
         user: singleTranslatePrompt(segment, kind, targetLanguage, sourceLanguage),
+        route: request.route,
         signal,
       });
       return stripWrapping(text);
@@ -608,6 +620,7 @@ export class TranslationEngine {
    * @param {'sentence' | 'paragraph'} [request.kind] - segment kind.
    * @param {string} request.targetLanguage - target language name.
    * @param {string} [request.sourceLanguage] - source language name.
+   * @param {{ provider?: string, model?: string } | null} [request.route] - per-call model override.
    * @param {AbortSignal} [request.signal] - caller cancellation.
    * @returns {Promise<string>} new translation.
    */
@@ -623,6 +636,7 @@ export class TranslationEngine {
         sourceLanguage: request.sourceLanguage,
       }),
       maxTokens: this.settings.retranslateMaxTokens ?? 4096,
+      route: request.route,
       signal: request.signal,
     });
     return stripWrapping(text);
@@ -636,6 +650,7 @@ export class TranslationEngine {
    * @param {'sentence' | 'paragraph'} [request.kind] - segment kind.
    * @param {string} request.targetLanguage - target language name.
    * @param {string} [request.sourceLanguage] - source language name.
+   * @param {{ provider?: string, model?: string } | null} [request.route] - per-call model override.
    * @param {AbortSignal} [request.signal] - caller cancellation.
    * @returns {Promise<{ score: number, comment: string }>} score and feedback.
    */
@@ -650,6 +665,7 @@ export class TranslationEngine {
         sourceLanguage: request.sourceLanguage,
       }),
       maxTokens: this.settings.scoreMaxTokens ?? 4096,
+      route: request.route,
       signal: request.signal,
     });
   }
@@ -661,6 +677,7 @@ export class TranslationEngine {
    * @param {string} request.translation - full translated document.
    * @param {string} request.targetLanguage - target language name.
    * @param {string} [request.sourceLanguage] - source language name.
+   * @param {{ provider?: string, model?: string } | null} [request.route] - per-call model override.
    * @param {AbortSignal} [request.signal] - caller cancellation.
    * @returns {Promise<{ score: number, comment: string }>} score and feedback.
    */
@@ -674,6 +691,7 @@ export class TranslationEngine {
         sourceLanguage: request.sourceLanguage,
       }),
       maxTokens: this.settings.scoreMaxTokens ?? 4096,
+      route: request.route,
       signal: request.signal,
     });
   }
@@ -682,11 +700,12 @@ export class TranslationEngine {
    * Ask the vision model to transcribe one image.
    * @param {object} request - OCR request.
    * @param {{ attachment: object }} request.image - durable image attachment reference.
+   * @param {{ provider?: string, model?: string } | null} [request.route] - per-call model override.
    * @param {AbortSignal} [request.signal] - caller cancellation.
    * @returns {Promise<string>} extracted text.
    */
   async ocr(request) {
-    const target = this.target();
+    const target = this.target(request.route);
     if (!target) {
       const error = new Error(
         'No model route is available. Set provider and model in the plugin config, or choose a default model first.',
@@ -715,6 +734,7 @@ export class TranslationEngine {
         { type: 'text', text: ocrPrompt() },
       ],
       maxTokens: this.settings.ocrMaxTokens ?? 4096,
+      route: request.route,
       signal: request.signal,
     });
     return stripWrapping(text);
@@ -734,6 +754,7 @@ export class TranslationEngine {
           system: request.system,
           user: request.user,
           maxTokens: request.maxTokens ?? this.settings.scoreMaxTokens ?? 4096,
+          route: request.route,
           signal: request.signal,
         });
         return parseScore(text);

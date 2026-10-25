@@ -6,13 +6,31 @@ import { apply } from '../host/index.js';
 
 /**
  * Build a fake abstract-LLM service.
+ *
+ * `listing` mirrors the documented registry surface — `listProviders()` names
+ * the routes and `listModels(providerId)` asks one adapter — which is how the
+ * Host learns what it can actually route to.
  * @param {(options: object, index: number) => unknown} replyFor - reply producer.
+ * @param {Record<string, (string | object)[]>} [listing] - provider id to advertised models.
  * @returns {object} fake llm service.
  */
-function makeLlm(replyFor) {
+function makeLlm(replyFor, listing) {
   const calls = [];
   return {
     calls,
+    listModels(provider) {
+      if (!listing || !(provider in listing)) {
+        const error = new Error(`no adapter registered for provider "${String(provider)}"`);
+        error.code = 'NO_ADAPTER';
+        throw error;
+      }
+      return Promise.resolve(listing[provider].map((model) => (typeof model === 'string'
+        ? { provider, id: model, name: model }
+        : { provider, ...model })));
+    },
+    listProviders() {
+      return Object.keys(listing ?? {}).map((id) => ({ id, name: id === 'deepseek-account' ? 'DeepSeek' : id }));
+    },
     stream(options) {
       const index = calls.length;
       calls.push(options);
@@ -31,7 +49,7 @@ function makeLlm(replyFor) {
  * @returns {object} captured routes, tools, and llm.
  */
 function createHarness(options = {}) {
-  const llm = options.llm ?? makeLlm(() => '[]');
+  const llm = options.llm ?? makeLlm(() => '[]', options.listing);
   const routes = new Map();
   const tools = [];
   const effects = [];
@@ -55,6 +73,7 @@ function createHarness(options = {}) {
           },
         };
       }
+      if (name === 'modelCatalog' && options.modelCatalog) return options.modelCatalog;
       if (name === 'tools') {
         return {
           register(definition) {
@@ -141,10 +160,149 @@ test('health endpoint reports the resolved model', async () => {
   const response = await call(handler, { method: 'GET', path: '/dsh-translation/api/health' });
   assert.equal(response.status, 200);
   assert.equal(response.json.ok, true);
-  assert.equal(response.json.revision, '3');
+  assert.equal(response.json.revision, '5');
   assert.ok(response.json.features.includes('ocr'));
   assert.ok(response.json.features.includes('score-document'));
+  assert.ok(response.json.features.includes('models'));
   assert.equal(response.json.model, 'deepseek-account/deepseek-flash');
+  // The route in use is always offered, even when nothing else is discoverable.
+  assert.deepEqual(response.json.models, [{ provider: 'deepseek-account', model: 'deepseek-flash' }]);
+});
+
+test('health lists configured and discovered models for the switcher', async () => {
+  const { handler } = createHarness({
+    config: { models: [{ provider: 'deepseek-account', model: 'deepseek-pro', label: 'Pro' }] },
+  });
+  const configured = await call(handler, { method: 'GET', path: '/dsh-translation/api/health' });
+  assert.deepEqual(configured.json.models[0], { provider: 'deepseek-account', model: 'deepseek-pro', label: 'Pro' });
+  assert.ok(configured.json.models.some((entry) => entry.model === 'deepseek-flash'),
+    'the route in use must still be listed');
+
+  const catalog = createHarness({
+    config: { provider: 'deepseek-account', model: 'deepseek-flash' },
+    modelCatalog: {
+      async list() {
+        return [{
+          provider: 'deepseek-account',
+          models: [{ id: 'deepseek-flash', name: 'Flash' }, { id: 'deepseek-reasoner', name: 'Reasoner' }],
+        }];
+      },
+    },
+  });
+  const discovered = await call(catalog.handler, { method: 'GET', path: '/dsh-translation/api/health' });
+  assert.deepEqual(discovered.json.models.map((entry) => entry.model), ['deepseek-flash', 'deepseek-reasoner']);
+  assert.equal(discovered.json.models[1].label, 'Reasoner');
+});
+
+test('health lists the models the LLM registry advertises', async () => {
+  // The documented discovery path: listProviders() names the routes and
+  // listModels(providerId) returns what each adapter can serve. A no-argument
+  // listModels() call throws on the real service, which is why the page used
+  // to offer a single model and hide its picker.
+  const harness = createHarness({
+    listing: {
+      'deepseek-account': [
+        { id: 'deepseek-flash', name: 'DeepSeek Flash' },
+        { id: 'deepseek-pro', name: 'DeepSeek Pro' },
+      ],
+      'bilibili': ['Index-Translate-9B'],
+    },
+  });
+  const response = await call(harness.handler, { method: 'GET', path: '/dsh-translation/api/health' });
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.json.models, [
+    { provider: 'deepseek-account', model: 'deepseek-flash', label: 'DeepSeek Flash', providerLabel: 'DeepSeek' },
+    { provider: 'deepseek-account', model: 'deepseek-pro', label: 'DeepSeek Pro', providerLabel: 'DeepSeek' },
+    { provider: 'bilibili', model: 'Index-Translate-9B', label: 'Index-Translate-9B', providerLabel: 'bilibili' },
+  ]);
+  assert.deepEqual(response.json.modelFailures, []);
+  assert.deepEqual(response.json.default, { provider: 'deepseek-account', model: 'deepseek-flash' });
+});
+
+test('a provider whose listing fails does not hide the other providers', async () => {
+  const harness = createHarness({
+    listing: { 'deepseek-account': ['deepseek-flash', 'deepseek-pro'] },
+  });
+  // Break one route: the real service rejects when a credential expired.
+  harness.llm.listProviders = () => [
+    { id: 'deepseek-account', name: 'DeepSeek' },
+    { id: 'broken', name: 'Broken' },
+  ];
+  const original = harness.llm.listModels;
+  harness.llm.listModels = (provider) => {
+    if (provider === 'broken') throw new Error('model listing timed out');
+    return original(provider);
+  };
+  const response = await call(harness.handler, { method: 'GET', path: '/dsh-translation/api/health' });
+  assert.deepEqual(response.json.models.map((entry) => entry.model), ['deepseek-flash', 'deepseek-pro']);
+  assert.deepEqual(response.json.modelFailures, [{ provider: 'broken', message: 'model listing timed out' }]);
+});
+
+test('a discovered model can be used as a per-request override', async () => {
+  const harness = createHarness({
+    llm: makeLlm(() => '["译文"]', { 'deepseek-account': ['deepseek-flash', 'deepseek-pro'] }),
+  });
+  const response = await call(harness.handler, {
+    path: '/dsh-translation/api/translate',
+    body: {
+      paragraphs: ['Hello.'],
+      route: { provider: 'deepseek-account', model: 'deepseek-pro' },
+    },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.json.model, 'deepseek-account/deepseek-pro');
+  assert.equal(harness.llm.calls[0].model, 'deepseek-pro');
+});
+
+test('translate honours a per-request model override', async () => {
+  const llm = makeLlm(() => '["译文"]');
+  const { handler } = createHarness({
+    llm,
+    config: {
+      provider: 'deepseek-account',
+      model: 'deepseek-flash',
+      models: [
+        { provider: 'deepseek-account', model: 'deepseek-flash' },
+        { provider: 'deepseek-account', model: 'deepseek-pro' },
+      ],
+    },
+  });
+  const response = await call(handler, {
+    path: '/dsh-translation/api/translate',
+    body: {
+      paragraphs: ['Hello.'],
+      route: { provider: 'deepseek-account', model: 'deepseek-pro' },
+    },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.json.model, 'deepseek-account/deepseek-pro');
+  assert.equal(llm.calls[0].provider, 'deepseek-account');
+  assert.equal(llm.calls[0].model, 'deepseek-pro');
+});
+
+test('an unknown or malformed model override is rejected before any model call', async () => {
+  const llm = makeLlm(() => '[]');
+  const { handler } = createHarness({
+    llm,
+    config: {
+      provider: 'deepseek-account',
+      model: 'deepseek-flash',
+      models: [{ provider: 'deepseek-account', model: 'deepseek-flash' }],
+    },
+  });
+  const unknown = await call(handler, {
+    path: '/dsh-translation/api/translate',
+    body: { paragraphs: ['Hello.'], route: { provider: 'deepseek-account', model: 'gone' } },
+  });
+  assert.equal(unknown.status, 400);
+  assert.equal(unknown.json.code, 'UNKNOWN_ROUTE');
+  const malformed = await call(handler, {
+    path: '/dsh-translation/api/translate',
+    body: { paragraphs: ['Hello.'], route: 'deepseek-account/deepseek-flash' },
+  });
+  assert.equal(malformed.status, 400);
+  assert.equal(malformed.json.code, 'BAD_ROUTE');
+  assert.equal(llm.calls.length, 0);
 });
 
 test('translate returns aligned sentence and paragraph arrays', async () => {

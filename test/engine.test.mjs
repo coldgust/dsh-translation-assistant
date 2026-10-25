@@ -71,8 +71,26 @@ test('translateBatch parses an aligned JSON array from one call', async () => {
   assert.match(prompt, /Target language: 中文/);
 });
 
-test('translateBatch falls back to per-segment calls when the reply is not JSON', async () => {
-  const llm = makeLlm((_options, index) => (index === 0 ? 'Sorry, no JSON here.' : index === 1 ? '"甲"' : '乙'));
+test('a per-call route overrides the configured model', async () => {
+  const llm = makeLlm(['["你好"]']);
+  const engine = makeEngine(llm);
+  const out = await engine.translateBatch({
+    segments: ['Hello'],
+    kind: 'sentence',
+    targetLanguage: '中文',
+    route: { provider: 'other-provider', model: 'big-model' },
+  });
+  assert.deepEqual(out, ['你好']);
+  assert.equal(llm.calls[0].provider, 'other-provider');
+  assert.equal(llm.calls[0].model, 'big-model');
+  assert.equal(engine.modelLabel({ provider: 'other-provider', model: 'big-model' }), 'other-provider/big-model');
+  // Without an override the configured route is used again.
+  await engine.translateBatch({ segments: ['Hi'], kind: 'sentence', targetLanguage: '中文' });
+  assert.equal(llm.calls[1].provider, 'deepseek-account');
+  assert.equal(llm.calls[1].model, 'deepseek-flash');
+});
+
+test('translateBatch falls back to per-segment calls when the reply is not JSON', async () => {  const llm = makeLlm((_options, index) => (index === 0 ? 'Sorry, no JSON here.' : index === 1 ? '"甲"' : '乙'));
   const engine = makeEngine(llm);
   const out = await engine.translateBatch({
     segments: ['A', 'B'],
