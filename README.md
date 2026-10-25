@@ -1,8 +1,15 @@
 # Translation Assistant
 
-A DeepSeek Harness plugin that turns the Web GUI into a translation workspace: paste text, drop a file, or paste a screenshot; read the source and the translation side by side; edit the output; let a second model review it. Everything stays on this device, and the model can be switched per request.
+A DeepSeek Harness plugin: paste text, drop a file, or paste a screenshot to translate; proofread the result side by side with the source; let a second model score it and rewrite what it criticises; and process a whole folder of documents from the workspace drawer. Everything stays on this device, and the model can be switched per request.
 
 [中文](README.zh.md)
+
+**Highlights**
+
+- **Translate** — paragraphs or sentences, three modes (coherence, alignment, or speed first), files and screenshots as input, and a `Stop` button beside every running pass.
+- **Proofread** — every segment is editable; AI retranslation, on-demand scoring, and bulk rewrites turn feedback into a better draft, and every pass leaves a revision you can roll back to.
+- **Workspace** — open a folder in the side drawer, click any file to translate or proofread it, and save translations back to disk (subfolder, suffix, or overwrite) — one file or the whole tree.
+- **Local and model-agnostic** — history and edits never leave the browser; bring your own models and switch routes per request.
 
 ![The comparison workspace: source and translation side by side, scores visible](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/workspace.png)
 
