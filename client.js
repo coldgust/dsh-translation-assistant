@@ -235,16 +235,22 @@ window.__ModuleLoader__.load({
       workspaceHint: '打开一个文件夹，选任意文件翻译并校对，也可一键批量翻译',
       wsRootPlaceholder: '粘贴文件夹路径，如 /Users/you/Documents/docs',
       wsOpen: '打开',
-      wsPickFolder: '选择文件夹',
-      wsPickFallback: '当前浏览器无法获取所选文件夹的路径，请直接粘贴路径。',
+      wsSelectLabel: '工作区',
+      wsEmptyRegistry: 'Harness 里还没有项目。先在主界面添加项目文件夹，再回到这里。',
+      wsReloadRegistry: '重新检测',
+      wsManualToggle: '手动输入路径',
+      wsUnavailable: '当前宿主未提供工作区列表，可手动输入文件夹路径。',
+      wsHostStale: '宿主侧还是旧版本：重启 Harness 后，这里会自动列出 Harness 项目。',
+      wsNotRegistered: '该文件夹不是 Harness 注册的工作区，请从列表中选择。',
       wsRefresh: '刷新',
       wsOutputLabel: '译文输出',
       wsOutputSubfolder: '另存到子文件夹',
       wsOutputSuffix: '另存为同目录副本',
       wsOutputOverwrite: '覆盖原文件',
+      wsOutputPreview: '预览',
       wsSuffixLabel: '副本后缀',
       wsSubfolderName: '译文',
-      wsAutoSave: '校对改动自动保存',
+      wsAutoSave: '自动保存',
       wsTranslateAll: '翻译全部',
       wsTranslateAllHint: '按顺序翻译所有未翻译的文件，翻完可逐个校对；进行中可停止',
       wsBatchProgress: '批量翻译中 {done}/{total}…',
@@ -258,6 +264,7 @@ window.__ModuleLoader__.load({
       wsTranslate: '翻译',
       wsRetranslate: '重新翻译',
       wsBannerTarget: '译文保存到',
+      wsBannerPreview: '预览',
       wsSaveToFile: '保存到文件',
       wsSaved: '已保存到 {path}。',
       wsBackToList: '回到列表',
@@ -445,16 +452,22 @@ window.__ModuleLoader__.load({
       workspaceHint: 'Open a folder, pick any file to translate and proofread, or batch-translate everything',
       wsRootPlaceholder: 'Paste a folder path, e.g. /Users/you/Documents/docs',
       wsOpen: 'Open',
-      wsPickFolder: 'Pick folder',
-      wsPickFallback: 'This browser cannot report the picked folder path. Paste the path instead.',
+      wsSelectLabel: 'Workspace',
+      wsEmptyRegistry: 'No projects in Harness yet. Add a project folder in the main window first, then come back.',
+      wsReloadRegistry: 'Detect again',
+      wsManualToggle: 'Enter a path manually',
+      wsUnavailable: 'This host does not expose the workspace list; enter a folder path manually.',
+      wsHostStale: 'The Host side is out of date: restart Harness and this list will show your Harness projects.',
+      wsNotRegistered: 'That folder is not a registered Harness workspace; pick one from the list.',
       wsRefresh: 'Refresh',
       wsOutputLabel: 'Translation output',
       wsOutputSubfolder: 'Save into a subfolder',
       wsOutputSuffix: 'Save as a sibling copy',
       wsOutputOverwrite: 'Overwrite the original file',
+      wsOutputPreview: 'Preview',
       wsSuffixLabel: 'Copy suffix',
       wsSubfolderName: 'translated',
-      wsAutoSave: 'Auto-save proofread edits',
+      wsAutoSave: 'Auto-save',
       wsTranslateAll: 'Translate all',
       wsTranslateAllHint: 'Translate every untranslated file in order, then proofread one by one; stoppable',
       wsBatchProgress: 'Batch translating {done}/{total}…',
@@ -467,6 +480,7 @@ window.__ModuleLoader__.load({
       wsTranslate: 'Translate',
       wsRetranslate: 'Retranslate',
       wsBannerTarget: 'saves to',
+      wsBannerPreview: 'Preview',
       wsSaveToFile: 'Save to file',
       wsSaved: 'Saved to {path}.',
       wsBackToList: 'Back to list',
@@ -1672,12 +1686,14 @@ function normalizeImportedText(raw) {
 /**
  * Normalize the stored workspace settings into a complete object.
  * @param {unknown} value - raw stored value.
- * @returns {{ output: 'subfolder' | 'suffix' | 'overwrite', suffix: string, autoSave: boolean }} settings.
+ * @returns {{ output: 'subfolder' | 'suffix' | 'overwrite' | 'preview', suffix: string, autoSave: boolean }} settings.
  */
 function readWsSettings(value) {
   const raw = value && typeof value === 'object' ? value : {};
   return {
-    output: raw.output === 'suffix' || raw.output === 'overwrite' ? raw.output : 'subfolder',
+    output: raw.output === 'suffix' || raw.output === 'overwrite' || raw.output === 'preview'
+      ? raw.output
+      : 'subfolder',
     suffix: typeof raw.suffix === 'string' && raw.suffix.trim()
       ? raw.suffix.trim().replace(/^[.\\/]+/, '').replace(/[\\/]/g, '')
       : 'zh',
@@ -1960,6 +1976,8 @@ function storedRoutePreference(value) {
 .dta-histBtn[data-active="true"] .dta-histLabel{color:var(--dsw-alias-brand-primary)}
 .dta-newBtn{flex:none;padding:0 8px}
 .dta-drawerLayer{position:fixed;inset:0;z-index:120;display:flex;justify-content:flex-end;width:auto;max-width:none}
+.dta-toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:140;max-width:min(420px,80vw);padding:8px 14px;border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12.5px;line-height:18px;box-shadow:0 6px 20px rgba(0,0,0,.16);animation:dtaToastIn .18s ease-out}
+@keyframes dtaToastIn{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}
 .dta-drawerMask{position:absolute;inset:0;background:rgba(14,16,20,.38);animation:dta-fade .16s ease-out both}
 .dta-drawer{position:relative;display:flex;flex-direction:column;width:min(392px,92vw);height:100%;min-width:0;border-left:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);box-shadow:-18px 0 44px rgba(14,16,20,.18);animation:dta-slide .2s cubic-bezier(.2,.7,.3,1) both}
 .dta-drawerHead{display:flex;align-items:center;gap:8px;padding:18px 16px 10px}
@@ -2071,6 +2089,9 @@ function storedRoutePreference(value) {
 .dta-wsTitle{margin:0;font-size:15px;font-weight:600}
 .dta-wsCount{padding:1px 8px;border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:11.5px}
 .dta-wsRootPath{margin:0;color:var(--dsw-alias-label-secondary);font-size:11.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dta-wsRegistry{display:flex;flex-direction:column;gap:8px}
+.dta-wsHint{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}
+.dta-wsRegistryEmpty{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
 .dta-wsOpenRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .dta-wsPath,.dta-wsSuffix{padding:6px 10px;border:1px solid var(--dsw-alias-border-secondary,rgba(127,127,127,.35));border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-layer-2);color:inherit;font:inherit;font-size:12.5px}
 .dta-wsPath{flex:1;min-width:240px}
@@ -2181,6 +2202,7 @@ function storedRoutePreference(value) {
               ? storedPrefs.transMode
               : storedPrefs.wholeDoc === false ? 'batch' : 'whole',
             wsRoot: typeof storedPrefs.wsRoot === 'string' ? storedPrefs.wsRoot : '',
+            wsWorkspaceId: typeof storedPrefs.wsWorkspaceId === 'string' ? storedPrefs.wsWorkspaceId : '',
             wsSettings: readWsSettings(storedPrefs.wsSettings),
           },
         };
@@ -2216,6 +2238,10 @@ function storedRoutePreference(value) {
       const [promptFor, setPromptFor] = React.useState(null);
       const [promptText, setPromptText] = React.useState('');
       const [notice, setNotice] = React.useState(null);
+      // Message-style toast: one transient line that clears itself, used for
+      // confirmations that do not need to persist (model switching).
+      const [toast, setToast] = React.useState('');
+      const toastTimer = React.useRef(null);
       // The translation-mode help bubble; native `title` tooltips do not
       // surface inside the Harness webview, so the icon draws its own.
       const [modeHelpOpen, setModeHelpOpen] = React.useState(false);
@@ -2241,6 +2267,11 @@ function storedRoutePreference(value) {
       const [wsOpen, setWsOpen] = React.useState(false);
       const [wsRoot, setWsRoot] = React.useState(bootstrap.prefs.wsRoot);
       const [wsRootDraft, setWsRootDraft] = React.useState(bootstrap.prefs.wsRoot);
+      // Harness workspace registry snapshot: null until the first load,
+      // then { available, workspaces: [{ id, title, path }] }.
+      const [wsRegistry, setWsRegistry] = React.useState(null);
+      const [wsWorkspaceId, setWsWorkspaceId] = React.useState(bootstrap.prefs.wsWorkspaceId);
+      const [wsManualOpen, setWsManualOpen] = React.useState(false);
       const [wsFiles, setWsFiles] = React.useState([]);
       const [wsSettings, setWsSettings] = React.useState(bootstrap.prefs.wsSettings);
       const [wsStatuses, setWsStatuses] = React.useState(() => {
@@ -2255,8 +2286,10 @@ function storedRoutePreference(value) {
       // The workspace file the open document belongs to; null when the
       // document came from the landing form, a file import, or history.
       const [wsTarget, setWsTarget] = React.useState(null);
+      // Name of the workspace file currently translating on its own, so the
+      // drawer can say which file is in flight instead of a generic label.
+      const [wsTranslatingName, setWsTranslatingName] = React.useState('');
       const wsBatchRef = React.useRef(null);
-      const wsDirInputRef = React.useRef(null);
       const wsSaveTimer = React.useRef(null);
       // The document the last successful translation landed, so the batch
       // pass can save it without waiting for the state update.
@@ -2371,9 +2404,10 @@ function storedRoutePreference(value) {
           route: route ? { provider: route.provider, model: route.model } : null,
           transMode,
           wsRoot,
+          wsWorkspaceId,
           wsSettings,
         });
-      }, [sourceLanguage, targetLanguage, view, fullMode, route, transMode, wsRoot, wsSettings]);
+      }, [sourceLanguage, targetLanguage, view, fullMode, route, transMode, wsRoot, wsWorkspaceId, wsSettings]);
 
       React.useEffect(() => {
         writeStorage(WORKSPACE_STORAGE, wsStatuses);
@@ -2451,6 +2485,8 @@ function storedRoutePreference(value) {
       // so typing a few characters does not produce a write per keystroke.
       React.useEffect(() => {
         if (!wsTarget || !wsSettings.autoSave || !doc || status) return undefined;
+        // Preview mode writes nothing, so auto-save is a no-op there.
+        if (wsTarget.plan && wsTarget.plan.preview) return undefined;
         if (wsSaveTimer.current) clearTimeout(wsSaveTimer.current);
         wsSaveTimer.current = setTimeout(() => {
           wsSaveTimer.current = null;
@@ -2534,25 +2570,32 @@ function storedRoutePreference(value) {
       }
 
       /**
+       * Show a transient toast that disappears on its own after 3 seconds.
+       * @param {string} text - message to show.
+       */
+      function showToast(text) {
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        setToast(text);
+        toastTimer.current = setTimeout(() => {
+          toastTimer.current = null;
+          setToast('');
+        }, 3000);
+      }
+
+      /**
        * Point later requests at another model.
        * @param {string} value - option value: `default` or `provider/model`.
        */
       function handleRouteChange(value) {
         if (value === 'default') {
           setRoute(null);
-          setNotice({
-            kind: 'info',
-            text: format(t('modelSwitchHint'), { model: defaultModel || t('modelFollowDefault') }),
-          });
+          showToast(format(t('modelSwitchHint'), { model: defaultModel || t('modelFollowDefault') }));
           return;
         }
         const entry = routes.find((item) => routeId(item) === value);
         if (!entry) return;
         setRoute({ provider: entry.provider, model: entry.model });
-        setNotice({
-          kind: 'info',
-          text: format(t('modelSwitchHint'), { model: entry.label || routeId(entry) }),
-        });
+        showToast(format(t('modelSwitchHint'), { model: entry.label || routeId(entry) }));
       }
 
       /**
@@ -3767,6 +3810,7 @@ function storedRoutePreference(value) {
         const keys = {
           ROOT_MISSING: 'wsRootMissing',
           ROOT_NOT_FOLDER: 'wsRootMissing',
+          WORKSPACE_NOT_REGISTERED: 'wsNotRegistered',
           PATH_ESCAPES: 'wsPathEscape',
           EXTENSION: 'wsExtUnsupported',
           TOO_LARGE: 'wsTooLargeFile',
@@ -3781,14 +3825,19 @@ function storedRoutePreference(value) {
       /**
        * Compute where a file's translation lands under the current settings.
        * `.docx` has no writer, so its translation always becomes `.md`.
+       * Preview mode writes nothing: the plan carries a `preview` flag and an
+       * empty path, and every save path checks that flag.
        * @param {object} entry - workspace file entry.
-       * @returns {{ relPath: string, overwrite: boolean }} output plan.
+       * @returns {{ relPath: string, overwrite: boolean, preview?: boolean }} output plan.
        */
       function wsPlanOutput(entry) {
         const outExt = entry.ext === 'docx' ? 'md' : entry.ext;
         const stem = String(entry.name ?? '').replace(/\.[^.]+$/, '');
         const slash = entry.relPath.lastIndexOf('/');
         const dir = slash >= 0 ? `${entry.relPath.slice(0, slash + 1)}` : '';
+        if (wsSettings.output === 'preview') {
+          return { relPath: '', overwrite: false, preview: true };
+        }
         if (wsSettings.output === 'overwrite' && entry.ext !== 'docx') {
           return { relPath: entry.relPath, overwrite: true };
         }
@@ -3832,76 +3881,95 @@ function storedRoutePreference(value) {
         }
       }
 
-      /** Toggle the workspace view; the file list loads on first open. */
+      /** Toggle the workspace view; the registry loads on first open. */
       function toggleWorkspace() {
         if (wsOpen) {
           setWsOpen(false);
           return;
         }
         setWsOpen(true);
-        if (wsRoot && wsFiles.length === 0) openWorkspaceRoot(wsRoot);
-      }
-
-      /**
-       * Handle the pick-folder button. The desktop shell exposes a native
-       * directory dialog over the preload bridge; the hidden webkitdirectory
-       * input is the fallback for shells without it.
-       * @returns {Promise<void>} resolves after the dialog flow settles.
-       */
-      async function handleWsPickButton() {
-        const bridge = typeof window !== 'undefined' ? window.__DSH_DIRECTORY_PICKER__ : null;
-        if (bridge && typeof bridge.pick === 'function') {
-          try {
-            const picked = await bridge.pick();
-            if (typeof picked === 'string' && picked) {
-              setWsRootDraft(picked);
-              openWorkspaceRoot(picked);
-              return;
-            }
-            // `null` means the user canceled the dialog — nothing to do.
-            if (picked === null) return;
-          } catch (error) {
-            // The bridge refused (old shell, unowned frame) — fall through to
-            // the input-based picker below.
-          }
-        }
-        if (wsDirInputRef.current && typeof wsDirInputRef.current.click === 'function') {
-          wsDirInputRef.current.click();
+        if (!wsRegistry) {
+          loadWorkspaceRegistry();
+        } else if (wsRoot && wsFiles.length === 0) {
+          openWorkspaceRoot(wsRoot);
         }
       }
 
       /**
-       * Derive the workspace root from a directory picker's file list. The
-       * desktop shell maps picked files to absolute paths over the preload
-       * bridge (`File.path` is gone since Electron 32); a plain browser does
-       * not, so the user falls back to pasting the path.
-       * @param {object} event - change event from the directory input.
+       * Load the Harness workspace registry and pick a workspace. The saved
+       * id wins; a legacy saved root that matches a registered path maps to
+       * that workspace; otherwise the first workspace opens.
+       * @returns {Promise<object>} the registry snapshot.
        */
-      function handleWsPickFolder(event) {
-        const files = event && event.target ? event.target.files : null;
-        if (event && event.target) event.target.value = '';
-        if (!files || files.length === 0) return;
-        const first = files[0];
-        const pathFor = typeof window !== 'undefined' ? window.__DSH_HOST_PATHS__ : null;
-        const absolute = typeof first.path === 'string' && first.path
-          ? first.path
-          : (pathFor && typeof pathFor.pathFor === 'function' ? String(pathFor.pathFor(first) || '') : '');
-        const relative = typeof first.webkitRelativePath === 'string' ? first.webkitRelativePath : '';
-        if (!absolute || !relative) {
-          setNotice({ kind: 'info', text: t('wsPickFallback') });
-          return;
+      async function loadWorkspaceRegistry() {
+        let registry;
+        try {
+          const data = await requestJson('workspace/registry', {});
+          registry = {
+            available: data.available === true,
+            workspaces: Array.isArray(data.workspaces) ? data.workspaces : [],
+          };
+        } catch (error) {
+          // A 404 means the page updated but the Host side did not — the
+          // endpoint only exists after a Harness restart.
+          registry = {
+            available: false,
+            staleHost: error && error.status === 404,
+            workspaces: [],
+          };
         }
-        // The relative path starts with the picked folder's own name, and the
-        // absolute path is `<root>/<relative>`; re-attach that first segment.
-        let root;
-        if (absolute.endsWith(relative)) {
-          root = absolute.slice(0, absolute.length - relative.length) + relative.split(/[\\/]/)[0];
-        } else {
-          // Separator mismatch or unexpected shapes: fall back to the file's directory.
-          root = absolute.replace(/[\\/][^\\/]*$/, '');
+        setWsRegistry(registry);
+        if (!registry.available || registry.workspaces.length === 0) return registry;
+        const saved = registry.workspaces.find((entry) => entry.id === wsWorkspaceId)
+          || registry.workspaces.find((entry) => entry.path === bootstrap.prefs.wsRoot)
+          || registry.workspaces[0];
+        if (wsRoot && chosenSameWorkspace(saved)) {
+          // The saved root is already this workspace; just make sure its file
+          // tree is loaded (it may not be on a fresh session).
+          if (wsFiles.length === 0) await openWorkspaceRoot(wsRoot);
+          return registry;
         }
-        root = root.replace(/[\\/]+$/, '');
-        openWorkspaceRoot(root);
+        await selectWorkspace(saved);
+        return registry;
+      }
+
+      /** True when the saved root already points at this workspace. */
+      function chosenSameWorkspace(entry) {
+        return wsRoot === entry.path;
+      }
+
+      /**
+       * Display name of the current workspace: the registered title when the
+       * registry knows this root, otherwise the folder's own name.
+       * @returns {string} a short label, or '' when no root is open.
+       */
+      function wsDisplayName() {
+        if (!wsRoot) return '';
+        const match = wsRegistry && Array.isArray(wsRegistry.workspaces)
+          ? wsRegistry.workspaces.find((entry) => entry.path === wsRoot)
+          : null;
+        if (match && match.title) return match.title;
+        const trimmed = wsRoot.replace(/\/+$/, '');
+        const slash = trimmed.lastIndexOf('/');
+        return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
+      }
+
+      /**
+       * Switch to one registered workspace and load its file tree.
+       * @param {object} entry - registry entry { id, title, path }.
+       */
+      async function selectWorkspace(entry) {
+        if (!entry || !entry.path || isWorking) return;
+        setWsWorkspaceId(entry.id || '');
+        setWsRoot(entry.path);
+        setWsRootDraft(entry.path);
+        await openWorkspaceRoot(entry.path);
+      }
+
+      /** Re-run the registry detection from the empty-state button. */
+      async function refreshWorkspaceRegistry() {
+        setWsRegistry(null);
+        await loadWorkspaceRegistry();
       }
 
       /**
@@ -3960,12 +4028,20 @@ function storedRoutePreference(value) {
           return { ok: false, aborted: false };
         }
         landedDocRef.current = null;
-        const landed = await translateText(text, { fileName: entry.name });
+        setWsTranslatingName(entry.name);
+        let landed;
+        try {
+          landed = await translateText(text, { fileName: entry.name });
+        } finally {
+          setWsTranslatingName('');
+        }
         if (!landed) return { ok: false, aborted: passAbortedRef.current };
         const root = wsRoot;
         const plan = wsPlanOutput(entry);
         setWsStatusFor(root, entry.relPath, 'translated');
-        if (options.saveNow) {
+        // Preview mode keeps the translation on the page only; the plan
+        // carries no path and nothing is written to disk.
+        if (options.saveNow && !plan.preview) {
           const saved = await saveWorkspaceFile(root, entry, plan, landedDocRef.current, {
             quiet: Boolean(options.quiet),
             mark: 'translated',
@@ -3989,7 +4065,9 @@ function storedRoutePreference(value) {
       async function openWorkspaceProofread(entry) {
         if (isWorking) return;
         const plan = wsPlanOutput(entry);
-        if (wsSettings.output === 'overwrite' && plan.overwrite) {
+        // Preview and overwrite both leave no separate output file to read
+        // back, so the last on-page translation for this name reopens.
+        if (plan.preview || (wsSettings.output === 'overwrite' && plan.overwrite)) {
           const match = [...history].reverse().find((item) => item.doc && item.doc.fileName === entry.name);
           if (match) {
             handleOpenEntry(match);
@@ -4071,15 +4149,21 @@ function storedRoutePreference(value) {
       /** Save the open workspace document back to its output file. */
       async function handleWsSave() {
         if (!wsTarget || !doc || isWorking) return;
+        if (wsTarget.plan && wsTarget.plan.preview) return;
         await saveWorkspaceFile(wsTarget.root, wsTarget, wsTarget.plan, doc);
       }
 
-      /** Progress text for the file currently translating inside the workspace. */
+      /**
+       * Progress text for the file currently translating inside the workspace.
+       * The file name leads the label, so it cannot read like a count of the
+       * pending files next to it.
+       */
       function wsTranslatingText() {
         if (!status || status.kind !== 'translating') return '';
-        return status.total
+        const progress = status.total
           ? format(t('translateProgress'), { done: status.done ?? 0, total: status.total })
           : t('translateWholeBusy');
+        return wsTranslatingName ? `${wsTranslatingName} · ${progress}` : progress;
       }
 
       /**
@@ -4410,19 +4494,24 @@ function storedRoutePreference(value) {
 
       function renderWorkspaceBanner() {
         if (!wsTarget || !doc) return null;
+        const preview = Boolean(wsTarget.plan && wsTarget.plan.preview);
         return h('div', { className: 'dta-wsBanner' },
           h('span', { className: 'dta-wsBannerTag' }, t('workspace')),
           h('span', { className: 'dta-wsBannerName', title: wsTarget.relPath }, wsTarget.name),
           h('span', { className: 'dta-wsBannerArrow', 'aria-hidden': true }, '→'),
-          h('span', { className: 'dta-wsBannerPath', title: wsTarget.plan.relPath },
-            `${t('wsBannerTarget')} ${wsTarget.plan.relPath}`),
+          preview
+            ? h('span', { className: 'dta-wsBannerPath' }, t('wsBannerPreview'))
+            : h('span', { className: 'dta-wsBannerPath', title: wsTarget.plan.relPath },
+              `${t('wsBannerTarget')} ${wsTarget.plan.relPath}`),
           h('div', { className: 'dta-wsBannerActions' },
-            h('button', {
-              type: 'button',
-              className: 'dta-btn dta-btn--sm dta-btn--primary',
-              disabled: isWorking,
-              onClick: handleWsSave,
-            }, t('wsSaveToFile')),
+            preview
+              ? null
+              : h('button', {
+                type: 'button',
+                className: 'dta-btn dta-btn--sm dta-btn--primary',
+                disabled: isWorking,
+                onClick: handleWsSave,
+              }, t('wsSaveToFile')),
             h('button', {
               type: 'button',
               className: 'dta-btn dta-btn--sm',
@@ -4475,45 +4564,75 @@ function storedRoutePreference(value) {
               notice && notice.text
                 ? h('p', { className: cx('dta-notice', notice.kind === 'error' && 'dta-notice--error') }, notice.text)
                 : null,
-              wsRoot
-                ? h('p', { className: 'dta-wsRootPath', title: wsRoot }, wsRoot)
+              wsRegistry && wsRegistry.available && wsRegistry.workspaces.length
+                ? h('div', { className: 'dta-wsRegistry' },
+                  h('label', { className: 'dta-wsField' },
+                    h('span', null, t('wsSelectLabel')),
+                    h('select', {
+                      className: 'dta-wsSelect',
+                      value: wsRegistry.workspaces.some((entry) => entry.id === wsWorkspaceId)
+                        ? wsWorkspaceId
+                        : wsRegistry.workspaces[0].id,
+                      disabled: isWorking,
+                      onChange: (event) => {
+                        const chosen = wsRegistry.workspaces.find((entry) => entry.id === event.target.value);
+                        if (chosen) selectWorkspace(chosen);
+                      },
+                    },
+                      wsRegistry.workspaces.map((entry) => h('option', { key: entry.id, value: entry.id },
+                        entry.title || entry.path)),
+                    ),
+                  ),
+                  wsRoot
+                    ? h('p', { className: 'dta-wsRootPath', title: wsRoot }, wsRoot)
+                    : null,
+                )
                 : null,
-          h('div', { className: 'dta-wsOpenRow' },
-            h('input', {
-              className: 'dta-wsPath',
-              type: 'text',
-              value: wsRootDraft,
-              placeholder: t('wsRootPlaceholder'),
-              spellCheck: false,
-              'aria-label': t('workspaceHint'),
-              disabled: isWorking,
-              onChange: (event) => setWsRootDraft(event.target.value),
-              onKeyDown: (event) => {
-                if (event.key === 'Enter') openWorkspaceRoot(wsRootDraft);
-              },
-            }),
-            h('button', {
-              type: 'button',
-              className: 'dta-btn',
-              disabled: isWorking,
-              onClick: () => openWorkspaceRoot(wsRootDraft),
-            }, t('wsOpen')),
-            h('button', {
-              type: 'button',
-              className: 'dta-btn',
-              disabled: isWorking,
-              title: t('wsPickFolder'),
-              onClick: handleWsPickButton,
-            }, t('wsPickFolder')),
-            h('input', {
-              ref: wsDirInputRef,
-              type: 'file',
-              webkitdirectory: 'true',
-              multiple: true,
-              style: { display: 'none' },
-              onChange: handleWsPickFolder,
-            }),
-          ),
+              wsRegistry && wsRegistry.available && wsRegistry.workspaces.length === 0
+                ? h('div', { className: 'dta-wsRegistryEmpty' },
+                  h('p', { className: 'dta-wsEmpty' }, t('wsEmptyRegistry')),
+                  h('button', {
+                    type: 'button',
+                    className: 'dta-btn dta-btn--sm',
+                    disabled: isWorking,
+                    onClick: refreshWorkspaceRegistry,
+                  }, t('wsReloadRegistry')),
+                )
+                : null,
+              wsRegistry && !wsRegistry.available
+                ? h('div', { className: 'dta-wsFallback' },
+                  h('p', { className: 'dta-wsHint' },
+                    wsRegistry.staleHost ? t('wsHostStale') : t('wsUnavailable')),
+                  wsManualOpen
+                    ? h('div', { className: 'dta-wsOpenRow' },
+                      h('input', {
+                        className: 'dta-wsPath',
+                        type: 'text',
+                        value: wsRootDraft,
+                        placeholder: t('wsRootPlaceholder'),
+                        spellCheck: false,
+                        'aria-label': t('workspaceHint'),
+                        disabled: isWorking,
+                        onChange: (event) => setWsRootDraft(event.target.value),
+                        onKeyDown: (event) => {
+                          if (event.key === 'Enter') openWorkspaceRoot(wsRootDraft);
+                        },
+                      }),
+                      h('button', {
+                        type: 'button',
+                        className: 'dta-btn',
+                        disabled: isWorking,
+                        onClick: () => openWorkspaceRoot(wsRootDraft),
+                      }, t('wsOpen')),
+                    )
+                    : h('button', {
+                      type: 'button',
+                      className: 'dta-btn dta-btn--sm',
+                      disabled: isWorking,
+                      onClick: () => setWsManualOpen(true),
+                    }, t('wsManualToggle')),
+                )
+                : null,
           wsRoot
             ? h('div', { className: 'dta-wsSettings' },
               h('label', { className: 'dta-wsField' },
@@ -4527,6 +4646,7 @@ function storedRoutePreference(value) {
                   h('option', { value: 'subfolder' }, t('wsOutputSubfolder')),
                   h('option', { value: 'suffix' }, t('wsOutputSuffix')),
                   h('option', { value: 'overwrite' }, t('wsOutputOverwrite')),
+                  h('option', { value: 'preview' }, t('wsOutputPreview')),
                 ),
               ),
               wsSettings.output === 'suffix'
@@ -4547,7 +4667,8 @@ function storedRoutePreference(value) {
                 h('input', {
                   type: 'checkbox',
                   checked: wsSettings.autoSave,
-                  disabled: isWorking,
+                  // Preview mode writes nothing, so auto-save cannot apply.
+                  disabled: isWorking || wsSettings.output === 'preview',
                   onChange: (event) => setWsSettings((current) => ({ ...current, autoSave: event.target.checked })),
                 }),
                 h('span', null, t('wsAutoSave')),
@@ -5517,7 +5638,9 @@ function storedRoutePreference(value) {
                 },
                   h('path', { d: 'M1.9 4.4a1.2 1.2 0 0 1 1.2-1.2h2.8l1.5 1.6h5.5a1.2 1.2 0 0 1 1.2 1.2v6a1.2 1.2 0 0 1-1.2 1.2H3.1a1.2 1.2 0 0 1-1.2-1.2z' }),
                 ),
-                h('span', null, t('workspace')),
+                // While a workspace file is open, the button names the
+                // workspace instead of the generic label.
+                h('span', null, (wsTarget && doc && wsDisplayName()) || t('workspace')),
               ),
               // Revisions describe the open document's own text, so the entry
               // sits with the document actions rather than in the toolbar.
@@ -5602,6 +5725,9 @@ function storedRoutePreference(value) {
         historyOpen ? renderHistoryDrawer() : null,
         versionsOpen ? renderVersionsDrawer() : null,
         wsOpen ? renderWorkspaceDrawer() : null,
+        toast
+          ? h('div', { className: 'dta-toast', role: 'status' }, toast)
+          : null,
       );
     }
 

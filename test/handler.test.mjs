@@ -64,6 +64,7 @@ function createHarness(options = {}) {
   const savedImages = [];
   const ctx = {
     llm,
+    ...(options.workspaceRegistry ? { workspaceRegistry: options.workspaceRegistry } : {}),
     webServer: {
       register(route) {
         routes.set(`${route.kind}:${route.path}`, route);
@@ -74,6 +75,7 @@ function createHarness(options = {}) {
       },
     },
     get(name) {
+      if (name === 'workspaceRegistry') return options.workspaceRegistry;
       if (name === 'agentDefaultModel') {
         return {
           currentSelection() {
@@ -168,7 +170,7 @@ test('health endpoint reports the resolved model', async () => {
   const response = await call(handler, { method: 'GET', path: '/dsh-translation/api/health' });
   assert.equal(response.status, 200);
   assert.equal(response.json.ok, true);
-  assert.equal(response.json.revision, '8');
+  assert.equal(response.json.revision, '9');
   assert.ok(response.json.features.includes('ocr'));
   assert.ok(response.json.features.includes('score-document'));
   assert.ok(response.json.features.includes('models'));
@@ -561,6 +563,66 @@ async function makeWorkspace() {
   await writeFile(path.join(root, '.hidden.md'), 'skip hidden');
   return { root, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
+
+test('workspace/registry reports unavailable without a Harness registry', async () => {
+  const { handler } = createHarness();
+  const response = await call(handler, { path: '/dsh-translation/api/workspace/registry', body: {} });
+  assert.equal(response.status, 200);
+  assert.equal(response.json.available, false);
+  assert.deepEqual(response.json.workspaces, []);
+});
+
+test('workspace/registry lists the Harness workspaces when mounted', async () => {
+  const { handler } = createHarness({
+    workspaceRegistry: {
+      list() {
+        return [
+          { id: 'w1', title: 'Docs', path: '/home/me/docs' },
+          { id: 'w2', title: '', path: '/home/me/notes' },
+        ];
+      },
+    },
+  });
+  const response = await call(handler, { path: '/dsh-translation/api/workspace/registry', body: {} });
+  assert.equal(response.status, 200);
+  assert.equal(response.json.available, true);
+  assert.deepEqual(response.json.workspaces, [
+    { id: 'w1', title: 'Docs', path: '/home/me/docs' },
+    { id: 'w2', title: '', path: '/home/me/notes' },
+  ]);
+});
+
+test('workspace endpoints refuse roots outside the registry when mounted', async () => {
+  const ws = await makeWorkspace();
+  try {
+    const { handler } = createHarness({
+      workspaceRegistry: {
+        list() {
+          return [{ id: 'w1', title: 'Docs', path: ws.root }];
+        },
+      },
+    });
+    const foreign = await mkdtemp(path.join(tmpdir(), 'dsh-ws-foreign-'));
+    try {
+      const denied = await call(handler, {
+        path: '/dsh-translation/api/workspace/list',
+        body: { root: foreign },
+      });
+      assert.equal(denied.status, 403);
+      assert.equal(denied.json.code, 'WORKSPACE_NOT_REGISTERED');
+    } finally {
+      await rm(foreign, { recursive: true, force: true });
+    }
+    const allowed = await call(handler, {
+      path: '/dsh-translation/api/workspace/list',
+      body: { root: ws.root },
+    });
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.json.root, ws.root);
+  } finally {
+    await ws.cleanup();
+  }
+});
 
 test('workspace/list walks the folder and filters by extension', async () => {
   const { handler } = createHarness();

@@ -1006,6 +1006,10 @@ test('the workspace translates a picked file and saves the proofread copy', asyn
   const page = createPage({
     handlers: {
       health: () => ({ ok: true, model: 'm' }),
+      'workspace/registry': () => ({
+        available: true,
+        workspaces: [{ id: 'ws1', title: 'Docs', path: '/ws/docs' }],
+      }),
       'workspace/list': (body) => ({
         root: body.root,
         entries: [{ relPath: 'intro.md', name: 'intro.md', ext: 'md', size: 14, mtimeMs: 1 }],
@@ -1031,12 +1035,12 @@ test('the workspace translates a picked file and saves the proofread copy', asyn
   });
   await page.flush();
   await page.click(page.t('workspace'));
-  const pathInput = page.findInput((node) => node.props.placeholder === page.t('wsRootPlaceholder'));
-  assert.ok(pathInput, 'the workspace path input must exist');
-  pathInput.props.onChange({ target: { value: '/ws/docs' } });
+  // The registry auto-selects the workspace, so the tree loads without any
+  // path entry.
   await page.flush();
-  await page.click(page.t('wsOpen'));
-  await page.flush();
+  const listCall = page.fetchLog.find((entry) => entry.action === 'workspace/list');
+  assert.ok(listCall, 'the registered workspace opened automatically');
+  assert.equal(listCall.body.root, '/ws/docs');
   assert.match(page.text(), /intro\.md/);
   // The common flow: a single click on the file name starts translating an
   // untranslated file — no separate button needed.
@@ -1075,6 +1079,10 @@ test('translate all runs through the pending files and writes each copy', async 
   const page = createPage({
     handlers: {
       health: () => ({ ok: true, model: 'm' }),
+      'workspace/registry': () => ({
+        available: true,
+        workspaces: [{ id: 'ws1', title: 'Ws', path: '/ws' }],
+      }),
       'workspace/list': (body) => ({
         root: body.root,
         entries: [
@@ -1105,10 +1113,6 @@ test('translate all runs through the pending files and writes each copy', async 
   });
   await page.flush();
   await page.click(page.t('workspace'));
-  const pathInput = page.findInput((node) => node.props.placeholder === page.t('wsRootPlaceholder'));
-  pathInput.props.onChange({ target: { value: '/ws' } });
-  await page.flush();
-  await page.click(page.t('wsOpen'));
   await page.flush();
   assert.match(page.text(), /\u5f85\u7ffb\u8bd1 2 \u4e2a/);
   await page.click(page.t('wsTranslateAll'));
@@ -1120,10 +1124,122 @@ test('translate all runs through the pending files and writes each copy', async 
   assert.ok(page.findButton(page.t('wsRetranslate')));
 });
 
+test('preview output keeps the translation on the page and names the workspace button', async () => {
+  const storage = makeStorage();
+  storage.setItem(
+    'dsh-translation-assistant:prefs:v2',
+    JSON.stringify({ transMode: 'batch', wsSettings: { output: 'preview' } }),
+  );
+  const page = createPage({
+    storage,
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      'workspace/registry': () => ({
+        available: true,
+        workspaces: [{ id: 'ws1', title: 'Docs Project', path: '/ws/docs' }],
+      }),
+      'workspace/list': (body) => ({
+        root: body.root,
+        entries: [{ relPath: 'intro.md', name: 'intro.md', ext: 'md', size: 14, mtimeMs: 1 }],
+      }),
+      'workspace/read': (body) => ({
+        content: body.relPath === 'intro.md' ? 'Hello.\n\nWorld.' : '',
+        encoding: 'text',
+        name: body.relPath,
+        ext: 'md',
+        size: 14,
+      }),
+      'workspace/write': () => ({ relPath: 'never' }),
+      translate: (body) => ({
+        sentences: body.sentences.map((_item, index) => `S${index + 1}`),
+        paragraphs: body.paragraphs.map((_item, index) => `P${index + 1}`),
+        model: 'm',
+      }),
+    },
+  });
+  await page.flush();
+  await page.click(page.t('workspace'));
+  await page.flush();
+  await page.click('intro.md');
+  await page.flush();
+  // Nothing lands on disk; the translation still shows in the comparison view.
+  assert.equal(
+    page.fetchLog.filter((entry) => entry.action === 'workspace/write').length,
+    0,
+    'preview mode must not write any file',
+  );
+  assert.match(page.text(), /P1译|P1/);
+  assert.ok(page.text().includes(page.t('wsBannerPreview')), 'the banner explains the preview mode');
+  assert.equal(page.findButton(page.t('wsSaveToFile')), undefined, 'preview offers no save button');
+  // While workspace content is open, the toggle button names the workspace.
+  assert.ok(page.text().includes('Docs Project'), 'the workspace button shows the workspace name');
+  // Back to the list, then reopen: the on-page translation comes from history.
+  await page.click(page.t('wsBackToList'));
+  await page.flush();
+  await page.click('intro.md');
+  await page.flush();
+  assert.match(page.text(), /P1译|P1/, 'the previewed translation reopens from history');
+  assert.equal(
+    page.fetchLog.filter((entry) => entry.action === 'workspace/write').length,
+    0,
+    'reopening a preview file still writes nothing',
+  );
+});
+
+test('the drawer names the file while it translates on its own', async () => {
+  let release;
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      'workspace/registry': () => ({
+        available: true,
+        workspaces: [{ id: 'ws1', title: 'Docs', path: '/ws/docs' }],
+      }),
+      'workspace/list': (body) => ({
+        root: body.root,
+        entries: [{ relPath: 'intro.md', name: 'intro.md', ext: 'md', size: 14, mtimeMs: 1 }],
+      }),
+      'workspace/read': (body) => ({
+        content: body.relPath === 'intro.md' ? 'Hello.\n\nWorld.' : '',
+        encoding: 'text',
+        name: body.relPath,
+        ext: 'md',
+        size: 14,
+      }),
+      'workspace/write': () => ({ relPath: 'never' }),
+      // Hold the pass in flight so the mid-run label is observable.
+      translate: () => new Promise((resolve) => {
+        release = () => resolve({ sentences: [], paragraphs: ['P1', 'P2'], model: 'm' });
+      }),
+    },
+  });
+  await page.flush();
+  await page.click(page.t('workspace'));
+  await page.flush();
+  await page.click('intro.md');
+  await page.flush();
+  // The in-flight label names the clicked file, so it cannot read like the
+  // pending count beside it.
+  assert.ok(
+    page.text().includes(`intro.md · ${page.t('translateWholeBusy')}`),
+    'the translating label leads with the file name',
+  );
+  release();
+  await page.flush();
+  assert.ok(
+    !page.text().includes(page.t('translateWholeBusy')),
+    'the label clears once the pass is done',
+  );
+});
+
 test('the workspace list renders as a collapsible directory tree', async () => {
   const page = createPage({
     handlers: {
       health: () => ({ ok: true, model: 'm' }),
+      'workspace/registry': () => ({
+        available: true,
+        workspaces: [{ id: 'ws1', title: 'Tree', path: '/ws/tree' }],
+      }),
       'workspace/list': (body) => ({
         root: body.root,
         entries: [
@@ -1136,10 +1252,6 @@ test('the workspace list renders as a collapsible directory tree', async () => {
   });
   await page.flush();
   await page.click(page.t('workspace'));
-  const pathInput = page.findInput((node) => node.props.placeholder === page.t('wsRootPlaceholder'));
-  pathInput.props.onChange({ target: { value: '/ws/tree' } });
-  await page.flush();
-  await page.click(page.t('wsOpen'));
   await page.flush();
   // Folders render as collapsible rows with their nested file counts.
   assert.ok(page.findButton('sub2'), 'the sub folder row shows a count of two files');
@@ -1155,83 +1267,175 @@ test('the workspace list renders as a collapsible directory tree', async () => {
   assert.match(page.text(), /inner\.txt/);
 });
 
-test('the folder picker derives the workspace root including the folder name', async () => {
+test('the workspace selector switches between registered workspaces', async () => {
   const page = createPage({
     handlers: {
       health: () => ({ ok: true, model: 'm' }),
+      'workspace/registry': () => ({
+        available: true,
+        workspaces: [
+          { id: 'w1', title: 'Docs', path: '/ws/docs' },
+          { id: 'w2', title: 'Notes', path: '/ws/notes' },
+        ],
+      }),
+      'workspace/list': (body) => ({
+        root: body.root,
+        entries: [{
+          relPath: body.root === '/ws/docs' ? 'doc.md' : 'note.md',
+          name: body.root === '/ws/docs' ? 'doc.md' : 'note.md',
+          ext: 'md',
+          size: 4,
+          mtimeMs: 1,
+        }],
+      }),
+    },
+  });
+  await page.flush();
+  await page.click(page.t('workspace'));
+  await page.flush();
+  assert.match(page.text(), /doc\.md/, 'the first workspace opens by default');
+  const select = page.hostNodes((node) => node.type === 'select' && node.props.className === 'dta-wsSelect')[0];
+  assert.ok(select, 'the workspace selector renders');
+  select.props.onChange({ target: { value: 'w2' } });
+  await page.flush();
+  assert.match(page.text(), /note\.md/, 'switching loads the other workspace');
+  const roots = page.fetchLog
+    .filter((entry) => entry.action === 'workspace/list')
+    .map((entry) => entry.body.root);
+  assert.deepEqual(roots, ['/ws/docs', '/ws/notes']);
+});
+
+test('an empty registry shows guidance and re-detects', async () => {
+  let registryReply = { available: true, workspaces: [] };
+  let registryCalls = 0;
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      'workspace/registry': () => {
+        registryCalls += 1;
+        return registryReply;
+      },
+      'workspace/list': (body) => ({
+        root: body.root,
+        entries: [{ relPath: 'doc.md', name: 'doc.md', ext: 'md', size: 4, mtimeMs: 1 }],
+      }),
+    },
+  });
+  await page.flush();
+  await page.click(page.t('workspace'));
+  await page.flush();
+  assert.match(page.text(), /Harness/);
+  assert.equal(registryCalls, 1);
+  // The user adds a project in Harness, then presses detect again.
+  registryReply = {
+    available: true,
+    workspaces: [{ id: 'w1', title: 'Docs', path: '/ws/docs' }],
+  };
+  await page.click(page.t('wsReloadRegistry'));
+  await page.flush();
+  await page.flush();
+  assert.equal(registryCalls, 2, 'the detect-again button reruns the registry request');
+  assert.doesNotMatch(page.text(), /Harness/);
+  assert.match(page.text(), /doc\.md/, 'a workspace that appeared is opened right away');
+});
+
+test('an outdated host points to a restart instead of the generic fallback', async () => {
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      'workspace/registry': () => ({ ok: false, status: 404, json: { error: 'Unknown endpoint.' } }),
       'workspace/list': (body) => ({ root: body.root, entries: [] }),
     },
   });
   await page.flush();
   await page.click(page.t('workspace'));
-  // A picked file sits at /Users/me/docs/notes/a.md and its relative path
-  // starts with the picked folder's own name; the root must keep that name.
-  const picker = page.findInput((node) => node.props.webkitdirectory === 'true');
-  assert.ok(picker, 'the hidden directory picker exists');
-  picker.props.onChange({
-    target: {
-      value: '',
-      files: [{ path: '/Users/me/docs/notes/a.md', webkitRelativePath: 'notes/a.md' }],
+  await page.flush();
+  assert.match(page.text(), new RegExp(page.t('wsHostStale').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('an unavailable registry falls back to manual path entry', async () => {
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      // No registry handler: the request fails, so the page falls back.
+      'workspace/list': (body) => ({ root: body.root, entries: [] }),
     },
   });
   await page.flush();
+  await page.click(page.t('workspace'));
+  await page.flush();
+  assert.match(page.text(), new RegExp(page.t('wsUnavailable').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal(
+    page.findInput((node) => node.props.placeholder === page.t('wsRootPlaceholder')),
+    undefined,
+    'the manual input stays hidden until asked for',
+  );
+  await page.click(page.t('wsManualToggle'));
+  const pathInput = page.findInput((node) => node.props.placeholder === page.t('wsRootPlaceholder'));
+  assert.ok(pathInput, 'the manual toggle reveals the path input');
+  pathInput.props.onChange({ target: { value: '/ws/manual' } });
+  await page.flush();
+  await page.click(page.t('wsOpen'));
+  await page.flush();
   const listCall = page.fetchLog.find((entry) => entry.action === 'workspace/list');
-  assert.ok(listCall, 'the folder pick opened the workspace');
-  assert.equal(listCall.body.root, '/Users/me/docs/notes');
+  assert.ok(listCall, 'the manual path opened the workspace');
+  assert.equal(listCall.body.root, '/ws/manual');
 });
 
-test('the pick button uses the desktop directory bridge when present', async () => {
+test('the saved workspace id wins over the first registry entry', async () => {
+  const storage = makeStorage();
+  storage.setItem(
+    'dsh-translation-assistant:prefs:v2',
+    JSON.stringify({ transMode: 'batch', wsWorkspaceId: 'w2' }),
+  );
   const page = createPage({
+    storage,
     handlers: {
       health: () => ({ ok: true, model: 'm' }),
+      'workspace/registry': () => ({
+        available: true,
+        workspaces: [
+          { id: 'w1', title: 'Docs', path: '/ws/docs' },
+          { id: 'w2', title: 'Notes', path: '/ws/notes' },
+        ],
+      }),
       'workspace/list': (body) => ({ root: body.root, entries: [] }),
     },
   });
-  globalThis.window.__DSH_DIRECTORY_PICKER__ = { pick: async () => '/picked/projects' };
-  try {
-    await page.flush();
-    await page.click(page.t('workspace'));
-    await page.click(page.t('wsPickFolder'));
-    await page.flush();
-    const listCall = page.fetchLog.find((entry) => entry.action === 'workspace/list');
-    assert.ok(listCall, 'the native dialog result opened the workspace');
-    assert.equal(listCall.body.root, '/picked/projects');
-    assert.equal(
-      page.findInput((node) => node.props.value === '/picked/projects') !== undefined
-        || page.text().includes('/picked/projects'),
-      true,
-      'the path input mirrors the picked folder',
-    );
-  } finally {
-    delete globalThis.window.__DSH_DIRECTORY_PICKER__;
-  }
+  await page.flush();
+  await page.click(page.t('workspace'));
+  await page.flush();
+  const listCall = page.fetchLog.find((entry) => entry.action === 'workspace/list');
+  assert.ok(listCall, 'the saved workspace opened automatically');
+  assert.equal(listCall.body.root, '/ws/notes');
 });
 
-test('the directory input maps picked files through the host path bridge', async () => {
+test('a legacy saved root maps onto the matching registered workspace', async () => {
+  const storage = makeStorage();
+  storage.setItem(
+    'dsh-translation-assistant:prefs:v2',
+    JSON.stringify({ transMode: 'batch', wsRoot: '/ws/notes' }),
+  );
   const page = createPage({
+    storage,
     handlers: {
       health: () => ({ ok: true, model: 'm' }),
+      'workspace/registry': () => ({
+        available: true,
+        workspaces: [
+          { id: 'w1', title: 'Docs', path: '/ws/docs' },
+          { id: 'w2', title: 'Notes', path: '/ws/notes' },
+        ],
+      }),
       'workspace/list': (body) => ({ root: body.root, entries: [] }),
     },
   });
-  globalThis.window.__DSH_HOST_PATHS__ = { pathFor: () => '/Users/me/docs/notes/a.md' };
-  try {
-    await page.flush();
-    await page.click(page.t('workspace'));
-    const picker = page.findInput((node) => node.props.webkitdirectory === 'true');
-    picker.props.onChange({
-      target: {
-        value: '',
-        files: [{ webkitRelativePath: 'notes/a.md' }],
-      },
-    });
-    await page.flush();
-    const listCall = page.fetchLog.find((entry) => entry.action === 'workspace/list');
-    assert.ok(listCall, 'the bridged absolute path opened the workspace');
-    assert.equal(listCall.body.root, '/Users/me/docs/notes');
-  } finally {
-    delete globalThis.window.__DSH_HOST_PATHS__;
-  }
+  await page.flush();
+  await page.click(page.t('workspace'));
+  await page.flush();
+  const listCall = page.fetchLog.find((entry) => entry.action === 'workspace/list');
+  assert.ok(listCall, 'the legacy root mapped onto its workspace');
+  assert.equal(listCall.body.root, '/ws/notes');
 });
 
 test('the sentence view switches to sentence segments', async () => {
@@ -2751,6 +2955,19 @@ test('the header switches the model used by later requests and remembers the cho
   select.props.onChange({ target: { value: 'other/big-model' } });
   await page.flush();
   assert.match(page.text(), /「Big」/);
+  // The confirmation is a Message-style toast, not the static notice box.
+  const toast = page.hostNodes(
+    (node) => node.type === 'div' && node.props.className === 'dta-toast',
+  )[0];
+  assert.ok(toast, 'the switch hint renders as a toast');
+  assert.equal(toast.props.role, 'status');
+  assert.match(textOf(toast), /「Big」/);
+  assert.equal(
+    page.hostNodes((node) => node.type === 'p' && typeof node.props.className === 'string'
+      && node.props.className.includes('dta-notice')).length,
+    0,
+    'the static notice box stays empty on a model switch',
+  );
   await page.click('新建翻译');
   await page.typeIn(
     page.findTextarea((node) => node.props.placeholder === page.t('sourcePlaceholder')),

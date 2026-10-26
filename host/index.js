@@ -18,7 +18,7 @@ import path from 'node:path';
 
 const API_PREFIX = '/dsh-translation/api';
 /** Build marker surfaced by the health endpoint; bumped when Host behavior changes. */
-const HOST_REVISION = '8';
+const HOST_REVISION = '9';
 const MAX_BODY_BYTES = 24 * 1024 * 1024;
 const MAX_SEGMENTS = 400;
 const MAX_SEGMENT_CHARS = 20_000;
@@ -546,6 +546,46 @@ function createHandler(ctx, engine, settings, catalog) {
   // One service per handler is fine: it holds no state beyond the injected
   // filesystem, and every call re-validates its paths.
   const workspace = createWorkspaceService(fs, path);
+  // The Harness workspace registry (`ctx.workspaceRegistry`) lists the
+  // projects the user added in the app. When it is mounted, plugin workspace
+  // roots must come from it; when it is missing (slim compositions such as
+  // `dsh web`), the endpoints keep their legacy behavior as a fallback.
+  const readWorkspaceRegistry = () => {
+    // `ctx.get()` reads the host service store without an inject declaration
+    // and without making the service a mandatory dependency; the property
+    // form would throw for a plugin that does not declare `inject`.
+    let registry;
+    try {
+      registry = typeof ctx.get === 'function' ? ctx.get('workspaceRegistry') : ctx.workspaceRegistry;
+    } catch {
+      registry = undefined;
+    }
+    if (!registry || typeof registry.list !== 'function') {
+      return { available: false, workspaces: [] };
+    }
+    try {
+      const workspaces = (registry.list() ?? [])
+        .map((entry) => ({
+          id: String(entry.id ?? ''),
+          title: String(entry.title ?? ''),
+          path: String(entry.path ?? ''),
+        }))
+        .filter((entry) => entry.id && entry.path);
+      return { available: true, workspaces };
+    } catch {
+      return { available: false, workspaces: [] };
+    }
+  };
+  const assertWorkspaceRoot = (root) => {
+    const registry = readWorkspaceRegistry();
+    if (!registry.available) return;
+    if (typeof root !== 'string' || !registry.workspaces.some((entry) => entry.path === root)) {
+      const error = new Error('Root is not a registered Harness workspace.');
+      error.status = 403;
+      error.code = 'WORKSPACE_NOT_REGISTERED';
+      throw error;
+    }
+  };
   return async function handle(request, response) {
     let url;
     try {
@@ -601,6 +641,7 @@ function createHandler(ctx, engine, settings, catalog) {
         && pathname !== `${API_PREFIX}/score`
         && pathname !== `${API_PREFIX}/score-document`
         && pathname !== `${API_PREFIX}/ocr`
+        && pathname !== `${API_PREFIX}/workspace/registry`
         && pathname !== `${API_PREFIX}/workspace/list`
         && pathname !== `${API_PREFIX}/workspace/read`
         && pathname !== `${API_PREFIX}/workspace/write`) {
@@ -623,16 +664,24 @@ function createHandler(ctx, engine, settings, catalog) {
       const body = await readJsonBody(request);
       // Workspace endpoints never touch the model, so they short-circuit
       // before any catalog discovery. The service confines every operation to
-      // the folder the page names as the root.
+      // the folder the page names as the root; when the Harness workspace
+      // registry is mounted, that root must be one of its registered paths.
+      if (pathname === `${API_PREFIX}/workspace/registry`) {
+        sendJson(response, 200, readWorkspaceRegistry());
+        return;
+      }
       if (pathname === `${API_PREFIX}/workspace/list`) {
+        assertWorkspaceRoot(body.root);
         sendJson(response, 200, await workspace.list(body.root));
         return;
       }
       if (pathname === `${API_PREFIX}/workspace/read`) {
+        assertWorkspaceRoot(body.root);
         sendJson(response, 200, await workspace.read(body.root, body.relPath));
         return;
       }
       if (pathname === `${API_PREFIX}/workspace/write`) {
+        assertWorkspaceRoot(body.root);
         sendJson(response, 200, await workspace.write(body.root, body.relPath, body.content, body.overwrite === true));
         return;
       }
@@ -933,6 +982,9 @@ export const inject = ['llm', 'webServer'];
  * @param {object} ctx - Host plugin context.
  * @param {unknown} [config] - raw plugin config.
  */
+// The Harness workspace registry is resolved through `ctx.get()`, which reads
+// the host-wide service store; a bare `ctx.workspaceRegistry` property access
+// requires an inject declaration that would also make the service mandatory.
 export function apply(ctx, config) {
   const settings = normalizeSettings(config);
   const engine = new TranslationEngine({

@@ -72,7 +72,7 @@
 本目录就是已安装的 bundle（档案直接链接到这里），改 `client.js` 会被热替换到已打开的页面；宿主侧改动需重启 Harness。
 
 ```bash
-# 121 项单元/集成测试：引擎（翻译/重译/评分/OCR）、HTTP handler、模型目录发现与
+# 129 项单元/集成测试：引擎（翻译/重译/评分/OCR）、HTTP handler、模型目录发现与
 # 路由覆盖、工作区文件端点，以及用极简 React harness 渲染的页面（不需要浏览器）。
 node --test 'test/*.test.mjs'
 ```

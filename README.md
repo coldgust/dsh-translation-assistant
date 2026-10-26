@@ -44,10 +44,11 @@ Local checkout, Git address, manual registry, and upgrading or uninstalling: [do
 
 ### Workspace
 
-- The header `Workspace` button opens a side drawer: load a folder by path or with the native folder dialog. The Host lists every translatable file inside and confines all reads and writes to that root; the drawer never covers what you are proofreading.
+- Workspaces are the projects you already added in Harness: a picker at the top of the drawer lists every project folder, selection switches instantly, and the last one is remembered. Reads and writes stay confined to the selected project; the drawer never covers what you are proofreading.
+- When the host does not expose the project list (e.g. `dsh web`), a collapsible manual path entry serves as the fallback; an outdated Host side (404) points to a Harness restart.
 - The tree folds by folder; clicking a file name opens it — untranslated files start translating immediately, translated ones reopen for proofreading.
-- Output goes to a `translated/` subfolder (default), a suffixed sibling copy, or over the original; `.docx` translations always save as `.md`. Proofread edits can auto-save or wait for the save button.
-- `Translate all` walks the pending files in order and saves each result; a stop ends the run after the file in flight.
+- Output goes to a `translated/` subfolder (default), a suffixed sibling copy, over the original, or stays on the page only without touching disk; `.docx` translations always save as `.md`. Proofread edits can auto-save or wait for the save button.
+- `Translate all` walks the pending files in order and saves each result; a stop ends the run after the file in flight. While workspace content is open, the workspace button shows the project's name.
 
 ![The workspace drawer: the folder tree on the side, output settings, and batch translation](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/workspace-drawer.png)
 

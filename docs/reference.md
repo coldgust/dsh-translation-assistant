@@ -72,7 +72,7 @@ History, edits, and preferences never leave the browser; only the text being tra
 This directory is the installed bundle (the profile links it), so `client.js` is hot-swapped into the open page; Host changes need a Harness restart.
 
 ```bash
-# 121 unit/integration tests: engine (translation/retranslation/scoring/OCR),
+# 129 unit/integration tests: engine (translation/retranslation/scoring/OCR),
 # the HTTP handler, model-catalog discovery and route overrides, the workspace
 # file endpoints, and the page rendered through a minimal React harness (no
 # browser needed).
