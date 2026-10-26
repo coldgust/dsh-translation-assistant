@@ -31,6 +31,14 @@ export const WS_MAX_READ_BYTES = 8 * 1024 * 1024;
 export const WS_MAX_DOCX_BYTES = 12 * 1024 * 1024;
 /** Largest string the write endpoint accepts. */
 export const WS_MAX_WRITE_CHARS = 8 * 1024 * 1024;
+/** Fixed folder (inside the workspace root) holding the guideline documents. */
+export const SPEC_DIRECTORY = '.translation-spec';
+/** Largest single guideline document the spec endpoint returns. */
+export const SPEC_MAX_FILE_BYTES = 64 * 1024;
+/** Largest combined size of all guideline documents returned. */
+export const SPEC_MAX_TOTAL_BYTES = 256 * 1024;
+/** Most guideline documents the spec endpoint returns. */
+export const SPEC_MAX_FILES = 20;
 /** Directories the listing never descends into. */
 const SKIPPED_DIRECTORIES = new Set(['node_modules']);
 
@@ -223,5 +231,99 @@ export function createWorkspaceService(fs, path) {
     return { relPath: rel, bytes: Buffer.byteLength(text, 'utf8'), existed: exists };
   }
 
-  return { list, read, write };
+  /**
+   * Read every guideline document from `<root>/.translation-spec/*.md`,
+   * sorted by file name. Oversized or excess files are reported in
+   * `skipped` instead of failing the whole call; a missing folder simply
+   * means the workspace has no guidelines.
+   * @param {string} root - absolute workspace root.
+   * @returns {Promise<object>} `{ available, docs, skipped }`.
+   */
+  async function readSpec(root) {
+    const base = path.resolve(String(root ?? '').trim());
+    if (!base) throw workspaceError(400, '"root" is required.');
+    const dir = path.join(base, SPEC_DIRECTORY);
+    let names;
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      // No folder yet is not an error: the section stays visible so the
+      // first document can be created from the page.
+      return { available: true, docs: [], skipped: [] };
+    }
+    const candidates = [];
+    for (const name of names) {
+      if (!name.toLowerCase().endsWith('.md')) continue;
+      const absolute = path.join(dir, name);
+      let info;
+      try {
+        info = await fs.stat(absolute);
+      } catch {
+        continue;
+      }
+      if (!info.isFile()) continue;
+      candidates.push({ name, absolute, size: info.size });
+    }
+    candidates.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const docs = [];
+    const skipped = [];
+    let total = 0;
+    for (const file of candidates) {
+      if (docs.length >= SPEC_MAX_FILES) {
+        skipped.push({ name: file.name, reason: 'too_many' });
+        continue;
+      }
+      if (file.size > SPEC_MAX_FILE_BYTES) {
+        skipped.push({ name: file.name, reason: 'too_large' });
+        continue;
+      }
+      if (total + file.size > SPEC_MAX_TOTAL_BYTES) {
+        skipped.push({ name: file.name, reason: 'total_limit' });
+        continue;
+      }
+      try {
+        const text = await fs.readFile(file.absolute, 'utf8');
+        docs.push({ name: file.name, bytes: file.size, text });
+        total += file.size;
+      } catch {
+        skipped.push({ name: file.name, reason: 'unreadable' });
+      }
+    }
+    return { available: true, docs, skipped };
+  }
+
+  /**
+   * Validate one guideline file name: a single `.md` path segment, nothing
+   * that could wander out of the spec folder.
+   * @param {string} name - raw file name.
+   * @returns {string} the validated name.
+   */
+  function specName(name) {
+    const file = String(name ?? '').trim();
+    if (!file || file.includes('/') || file.includes('\\') || !file.toLowerCase().endsWith('.md')) {
+      throw workspaceError(400, 'Not a valid guideline file name.', 'SPEC_NAME');
+    }
+    return file;
+  }
+
+  /**
+   * Delete one guideline document from `<root>/.translation-spec`.
+   * @param {string} root - absolute workspace root.
+   * @param {string} name - file name with the `.md` suffix.
+   * @returns {Promise<object>} `{ name }` of the deleted file.
+   */
+  async function deleteSpec(root, name) {
+    const base = path.resolve(String(root ?? '').trim());
+    if (!base) throw workspaceError(400, '"root" is required.');
+    const file = specName(name);
+    const absolute = resolveInside(path, base, path.join(SPEC_DIRECTORY, file));
+    try {
+      await fs.unlink(absolute);
+    } catch {
+      throw workspaceError(404, 'The file does not exist.', 'FILE_MISSING');
+    }
+    return { name: file };
+  }
+
+  return { list, read, write, readSpec, deleteSpec };
 }

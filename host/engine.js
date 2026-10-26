@@ -156,6 +156,20 @@ function languageLine(targetLanguage, sourceLanguage) {
 }
 
 /**
+ * Prompt block carrying the workspace's translation guidelines, prepended to
+ * the user prompt so every channel (translate, retranslate, score, rewrite)
+ * sees the same instructions.
+ * @param {string} spec - concatenated guideline documents.
+ * @returns {string} prompt block.
+ */
+function specBlock(spec) {
+  return [
+    'The translation guidelines below come from this workspace and MUST be followed:',
+    String(spec).trim(),
+  ].join('\n');
+}
+
+/**
  * Prompt asking for a JSON array of translations aligned with the input array.
  * @param {readonly string[]} segments - source segments.
  * @param {'sentence' | 'paragraph'} kind - segment kind.
@@ -491,6 +505,7 @@ export class TranslationEngine {
    * @param {object} request - completion request.
    * @param {string} request.system - system prompt.
    * @param {string} request.user - user prompt.
+   * @param {string} [request.spec] - workspace guidelines prepended to the prompt.
    * @param {number} [request.maxTokens] - output token limit.
    * @param {{ provider?: string, model?: string, reasoningEffort?: string } | null} [request.route] - per-call model override.
    * @param {AbortSignal} [request.signal] - caller cancellation.
@@ -505,9 +520,12 @@ export class TranslationEngine {
       error.code = NO_MODEL_CODE;
       throw error;
     }
+    const user = request.spec && String(request.spec).trim()
+      ? `${specBlock(request.spec)}\n\n${request.user}`
+      : request.user;
     const content = Array.isArray(request.content) && request.content.length > 0
       ? request.content
-      : [{ type: 'text', text: request.user }];
+      : [{ type: 'text', text: user }];
     const options = {
       provider: target.provider,
       model: target.model,
@@ -560,6 +578,7 @@ export class TranslationEngine {
    * @param {object} request - completion request.
    * @param {string} request.system - system prompt.
    * @param {string} request.user - user prompt.
+   * @param {string} [request.spec] - workspace guidelines prepended to the prompt.
    * @param {number} [request.maxTokens] - output token limit.
    * @param {{ provider?: string, model?: string } | null} [request.route] - per-call model override.
    * @param {AbortSignal} [request.signal] - caller cancellation.
@@ -647,6 +666,7 @@ export class TranslationEngine {
           maxTokens: undefined,
           route: request.route,
           signal: request.signal,
+          spec: request.spec,
         });
         const parsed = parseJsonLoose(raw);
         if (
@@ -667,6 +687,7 @@ export class TranslationEngine {
           user: singleTranslatePrompt(segment, 'paragraph', request.targetLanguage, request.sourceLanguage),
           route: request.route,
           signal: request.signal,
+          spec: request.spec,
         });
         return stripWrapping(text);
       });
@@ -679,6 +700,7 @@ export class TranslationEngine {
       maxTokens: undefined,
       route: request.route,
       signal: request.signal,
+      spec: request.spec,
     });
     return stripWrapping(text);
   }
@@ -704,6 +726,7 @@ export class TranslationEngine {
         user: batchTranslatePrompt(chunk, kind, targetLanguage, sourceLanguage),
         route: request.route,
         signal,
+        spec: request.spec,
       });
     } catch (error) {
       throw error;
@@ -727,6 +750,7 @@ export class TranslationEngine {
         user: singleTranslatePrompt(segment, kind, targetLanguage, sourceLanguage),
         route: request.route,
         signal,
+        spec: request.spec,
       });
       return stripWrapping(text);
     });
@@ -764,6 +788,7 @@ export class TranslationEngine {
       maxTokens: isDocument ? undefined : this.settings.retranslateMaxTokens ?? 4096,
       route: request.route,
       signal: request.signal,
+      spec: request.spec,
     });
     return stripWrapping(text);
   }
@@ -793,6 +818,7 @@ export class TranslationEngine {
       maxTokens: this.settings.scoreMaxTokens ?? 4096,
       route: request.route,
       signal: request.signal,
+      spec: request.spec,
     });
   }
 
@@ -819,6 +845,7 @@ export class TranslationEngine {
       maxTokens: this.settings.scoreMaxTokens ?? 4096,
       route: request.route,
       signal: request.signal,
+      spec: request.spec,
     });
   }
 
@@ -882,6 +909,7 @@ export class TranslationEngine {
           maxTokens: request.maxTokens ?? this.settings.scoreMaxTokens ?? 4096,
           route: request.route,
           signal: request.signal,
+          spec: request.spec,
         });
         return parseScore(text);
       } catch (error) {

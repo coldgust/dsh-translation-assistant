@@ -286,7 +286,14 @@ function createPage(options = {}) {
     const action = String(url).replace(/^.*\/api\//, '');
     const body = init.body ? JSON.parse(init.body) : undefined;
     fetchLog.push({ action, body });
-    if (!handlers[action]) throw new Error(`Unexpected fetch: ${url}`);
+    if (!handlers[action]) {
+      // Workspace guidelines default to "none" so tests without a spec
+      // fixture still work; the drawer simply hides the section.
+      if (action === 'workspace/spec') {
+        return { ok: true, status: 200, json: async () => ({ available: false, docs: [], skipped: [] }) };
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }
     // A handler may return a promise to hold the request in flight, which is
     // how tests observe intermediate progress states. The abort signal rides
     // along so a handler can reject when the page stops the pass.
@@ -1187,7 +1194,9 @@ test('preview output keeps the translation on the page and names the workspace b
 });
 
 test('the drawer names the file while it translates on its own', async () => {
-  let release;
+  // A whole file issues one request per paragraph, so hold every request and
+  // release them together.
+  const resolvers = [];
   const page = createPage({
     handlers: {
       health: () => ({ ok: true, model: 'm' }),
@@ -1209,7 +1218,7 @@ test('the drawer names the file while it translates on its own', async () => {
       'workspace/write': () => ({ relPath: 'never' }),
       // Hold the pass in flight so the mid-run label is observable.
       translate: () => new Promise((resolve) => {
-        release = () => resolve({ sentences: [], paragraphs: ['P1', 'P2'], model: 'm' });
+        resolvers.push(() => resolve({ sentences: [], paragraphs: ['P1'], model: 'm' }));
       }),
     },
   });
@@ -1221,15 +1230,234 @@ test('the drawer names the file while it translates on its own', async () => {
   // The in-flight label names the clicked file, so it cannot read like the
   // pending count beside it.
   assert.ok(
-    page.text().includes(`intro.md · ${page.t('translateWholeBusy')}`),
+    page.text().includes('intro.md · '),
     'the translating label leads with the file name',
   );
-  release();
+  resolvers.forEach((release) => release());
   await page.flush();
   assert.ok(
-    !page.text().includes(page.t('translateWholeBusy')),
+    !page.text().includes('intro.md · '),
     'the label clears once the pass is done',
   );
+});
+
+test('workspace guidelines ride along and the toggle switches them off', async () => {
+  const translateBodies = [];
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      'workspace/registry': () => ({
+        available: true,
+        workspaces: [{ id: 'ws1', title: 'Docs', path: '/ws/docs' }],
+      }),
+      'workspace/list': (body) => ({
+        root: body.root,
+        entries: [{ relPath: 'intro.md', name: 'intro.md', ext: 'md', size: 14, mtimeMs: 1 }],
+      }),
+      'workspace/read': (body) => ({
+        content: body.relPath === 'intro.md' ? 'Hello.\n\nWorld.' : '',
+        encoding: 'text',
+        name: body.relPath,
+        ext: 'md',
+        size: 14,
+      }),
+      'workspace/write': () => ({ relPath: 'never' }),
+      'workspace/spec': () => ({
+        available: true,
+        docs: [{ name: 'glossary.md', bytes: 12, text: 'AI → 人工智能' }],
+        skipped: [],
+      }),
+      translate: (body) => {
+        translateBodies.push(body);
+        return {
+          sentences: body.sentences.map((_item, index) => `S${index + 1}`),
+          paragraphs: body.paragraphs.map((_item, index) => `P${index + 1}`),
+          model: 'm',
+        };
+      },
+    },
+  });
+  await page.flush();
+  await page.click(page.t('workspace'));
+  await page.flush();
+  assert.match(page.text(), /规范 1 个/, 'the drawer lists the guideline documents');
+  await page.click('intro.md');
+  await page.flush();
+  const expected = '### glossary.md\n\nAI → 人工智能';
+  assert.ok(
+    translateBodies.every((body) => body.spec === expected),
+    'the translating pass carries the joined guidelines',
+  );
+  // The banner names the guideline documents currently attached.
+  const bannerSpec = page.hostNodes(
+    (node) => node.type === 'span' && node.props.className === 'dta-wsBannerSpec',
+  )[0];
+  assert.ok(bannerSpec, 'the banner shows which guideline documents apply');
+  assert.match(textOf(bannerSpec), /glossary\.md/);
+  // Back to the list (the drawer closed itself when the file opened); the
+  // guidelines toggle lives there.
+  await page.click(page.t('wsBackToList'));
+  await page.flush();
+  const specBox = page.hostNodes(
+    (node) => node.type === 'input' && node.props.type === 'checkbox' && node.props.checked,
+  )[0];
+  assert.ok(specBox, 'the guidelines toggle is on by default');
+  specBox.props.onChange({ target: { checked: false } });
+  await page.flush();
+  const beforeToggle = translateBodies.length;
+  await page.click(page.t('wsRetranslate'));
+  await page.flush();
+  assert.ok(translateBodies.length > beforeToggle, 'the retranslate pass issued new requests');
+  assert.ok(
+    translateBodies.slice(beforeToggle).every((body) => body.spec === undefined),
+    'no request carries guidelines once the toggle is off',
+  );
+});
+
+test('the drawer creates, edits, and deletes guideline documents', async () => {
+  const writes = [];
+  const files = new Map();
+  const deletes = [];
+  let specOn = false;
+  const page = createPage({
+    handlers: {
+      health: () => ({ ok: true, model: 'm' }),
+      'workspace/registry': () => ({
+        available: true,
+        workspaces: [{ id: 'ws1', title: 'Docs', path: '/ws/docs' }],
+      }),
+      'workspace/list': (body) => ({
+        root: body.root,
+        entries: [{ relPath: 'intro.md', name: 'intro.md', ext: 'md', size: 14, mtimeMs: 1 }],
+      }),
+      'workspace/read': (body) => ({
+        content: body.relPath === 'intro.md' ? 'Hello.\n\nWorld.' : (files.get(body.relPath) ?? ''),
+        encoding: 'text',
+        name: body.relPath,
+        ext: 'md',
+        size: 20,
+      }),
+      'workspace/write': (body) => {
+        writes.push(body);
+        files.set(body.relPath, body.content);
+        return { relPath: body.relPath, bytes: body.content.length };
+      },
+      'workspace/spec/delete': (body) => {
+        deletes.push(body);
+        files.delete(`.translation-spec/${body.name}`);
+        return { name: body.name };
+      },
+      'workspace/spec': () => {
+        if (!specOn) return { available: false, docs: [], skipped: [] };
+        const docs = [...files.entries()]
+          .filter(([rel]) => rel.startsWith('.translation-spec/') && rel.endsWith('.md'))
+          .map(([rel, content]) => ({
+            name: rel.slice('.translation-spec/'.length),
+            bytes: content.length,
+            text: content,
+          }))
+          .sort((a, b) => (a.name < b.name ? -1 : 1));
+        return { available: docs.length > 0, docs, skipped: [] };
+      },
+      translate: (body) => ({
+        sentences: body.sentences.map((_item, index) => `S${index + 1}`),
+        paragraphs: body.paragraphs.map((_item, index) => `P${index + 1}`),
+        model: 'm',
+      }),
+    },
+  });
+  const specCount = (n) => page.t('wsSpecCount').replace('{count}', String(n));
+  await page.flush();
+  await page.click(page.t('workspace'));
+  await page.flush();
+  // The manage entry always exists; without documents it just says 规范.
+  assert.ok(page.findButton(page.t('wsSpecTitle')), 'the workspace drawer offers the guideline manager');
+  assert.ok(!page.text().includes(specCount(1)), 'the count appears only once documents exist');
+  specOn = true;
+  files.set('.translation-spec/glossary.md', 'AI → 人工智能');
+  await page.click(page.t('wsRefresh'));
+  await page.flush();
+  assert.ok(page.text().includes(specCount(1)), 'the manage entry counts the documents');
+  // Open the guideline drawer and edit the document there.
+  await page.click(specCount(1));
+  await page.flush();
+  assert.ok(page.text().includes('glossary.md'), 'the drawer lists the document');
+  const card = page.hostNodes(
+    (node) => node.type === 'button' && node.props.className === 'dta-wsSpecCard',
+  )[0];
+  assert.ok(card, 'the guideline card is clickable');
+  card.props.onClick();
+  await page.flush();
+  const editor = page.hostNodes(
+    (node) => node.type === 'textarea' && node.props.className === 'dta-wsSpecText',
+  )[0];
+  assert.ok(editor, 'the editor opens with the document content');
+  assert.equal(editor.props.value, 'AI → 人工智能');
+  editor.props.onChange({ target: { value: 'AI → 人工智能\nLLM → 大模型' } });
+  await page.flush();
+  await page.click(page.t('wsSpecSave'));
+  await page.flush();
+  const saved = writes.find((body) => body.relPath === '.translation-spec/glossary.md');
+  assert.ok(saved, 'the edit was written into .translation-spec');
+  assert.equal(saved.overwrite, true);
+  assert.equal(saved.content, 'AI → 人工智能\nLLM → 大模型');
+  assert.ok(page.text().includes('glossary.md'), 'saving returns to the list');
+  // Create a second document from the drawer head.
+  await page.click(page.t('wsSpecAdd'));
+  await page.flush();
+  const input = page.hostNodes(
+    (node) => node.type === 'input' && node.props.className === 'dta-wsSpecInput',
+  )[0];
+  assert.ok(input, 'the create form asks for a file name');
+  input.props.onChange({ target: { value: 'style' } });
+  await page.flush();
+  await page.click(page.t('wsSpecCreate'));
+  await page.flush();
+  assert.ok(
+    writes.some((body) => body.relPath === '.translation-spec/style.md' && body.content === ''),
+    'creating writes an empty .md file',
+  );
+  assert.ok(page.text().includes(specCount(2)));
+  // An invalid name is rejected without a write.
+  await page.click(page.t('wsSpecAdd'));
+  await page.flush();
+  const badInput = page.hostNodes(
+    (node) => node.type === 'input' && node.props.className === 'dta-wsSpecInput',
+  )[0];
+  badInput.props.onChange({ target: { value: 'bad name!' } });
+  await page.flush();
+  const writeCount = writes.length;
+  await page.click(page.t('wsSpecCreate'));
+  await page.flush();
+  assert.equal(writes.length, writeCount, 'an invalid name writes nothing');
+  assert.match(page.text(), /文件名只能用/);
+  await page.click(page.t('promptCancel'));
+  await page.flush();
+  // Deleting happens inside the editor and asks for confirmation first.
+  const glossaryCard = page.hostNodes(
+    (node) => node.type === 'button' && node.props.className === 'dta-wsSpecCard'
+      && textOf(node).includes('glossary.md'),
+  )[0];
+  assert.ok(glossaryCard, 'the glossary card is listed again');
+  glossaryCard.props.onClick();
+  await page.flush();
+  page.findButton(page.t('wsSpecDelete'), 0).props.onClick({ preventDefault() {} });
+  await page.flush();
+  const confirm = page.findButton(page.t('wsSpecConfirmDelete'), 0);
+  assert.ok(confirm, 'the first click only asks for confirmation');
+  confirm.props.onClick({ preventDefault() {} });
+  await page.flush();
+  assert.equal(deletes.length, 1);
+  assert.equal(deletes[0].name, 'glossary.md');
+  assert.ok(page.text().includes(specCount(1)), 'the list drops the deleted document');
+  // Closing the drawer hands the layer back to the workspace.
+  const specClose = page.hostNodes(
+    (node) => node.type === 'button' && node.props.className === 'dta-drawerClose',
+  )[0];
+  assert.ok(specClose, 'the guideline drawer has a close button');
+  specClose.props.onClick({ preventDefault() {} });
+  await page.flush();
+  assert.ok(page.findButton(specCount(1)), 'the workspace drawer is back');
 });
 
 test('the workspace list renders as a collapsible directory tree', async () => {
@@ -2955,18 +3183,30 @@ test('the header switches the model used by later requests and remembers the cho
   select.props.onChange({ target: { value: 'other/big-model' } });
   await page.flush();
   assert.match(page.text(), /「Big」/);
-  // The confirmation is a Message-style toast, not the static notice box.
+  // The confirmation is a Message-style toast with its own close button,
+  // not an inline notice box.
   const toast = page.hostNodes(
-    (node) => node.type === 'div' && node.props.className === 'dta-toast',
+    (node) => node.type === 'div' && typeof node.props.className === 'string'
+      && node.props.className.includes('dta-toast'),
   )[0];
   assert.ok(toast, 'the switch hint renders as a toast');
   assert.equal(toast.props.role, 'status');
+  assert.ok(
+    toast.props.className.includes('dta-toast--success'),
+    'a completed switch confirms with the success styling',
+  );
   assert.match(textOf(toast), /「Big」/);
+  const closeToast = page.hostNodes(
+    (node) => node.type === 'button' && node.props.className === 'dta-toastClose',
+  )[0];
+  assert.ok(closeToast, 'the toast carries a manual close button');
+  closeToast.props.onClick();
+  await page.flush();
   assert.equal(
-    page.hostNodes((node) => node.type === 'p' && typeof node.props.className === 'string'
-      && node.props.className.includes('dta-notice')).length,
+    page.hostNodes((node) => node.type === 'div' && typeof node.props.className === 'string'
+      && node.props.className.includes('dta-toast')).length,
     0,
-    'the static notice box stays empty on a model switch',
+    'the close button dismisses the toast early',
   );
   await page.click('新建翻译');
   await page.typeIn(

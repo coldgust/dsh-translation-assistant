@@ -1,6 +1,6 @@
 {
   "name": "dsh-translation-assistant",
-  "version": "1.18.0",
+  "version": "1.18.1",
   "description": "Translate text, files, screenshots, and whole folders; proofread side by side as AI retranslates, scores, and rewrites from your notes. AI at every step.",
   "license": "Apache-2.0",
   "author": "coldgust",

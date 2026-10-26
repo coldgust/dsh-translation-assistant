@@ -90,6 +90,37 @@ test('a per-call route overrides the configured model', async () => {
   assert.equal(llm.calls[1].model, 'deepseek-flash');
 });
 
+test('workspace guidelines ride along on translate and score prompts', async () => {
+  const spec = '### glossary.md\n\nAI → 人工智能';
+  const llm = makeLlm(['["你好"]', '["你好"]', 'SCORE: 90\nCOMMENT: 好']);
+  const engine = makeEngine(llm);
+  await engine.translateBatch({
+    segments: ['Hello'],
+    kind: 'sentence',
+    targetLanguage: '中文',
+    spec,
+  });
+  let prompt = llm.calls[0].messages[0].content[0].text;
+  assert.match(prompt, /guidelines below/);
+  assert.match(prompt, /### glossary\.md/);
+  assert.match(prompt, /AI → 人工智能/);
+  assert.match(prompt, /JSON array/, 'the task instructions stay in place');
+  // Without a spec the prompt is untouched.
+  await engine.translateBatch({ segments: ['Hello'], kind: 'sentence', targetLanguage: '中文' });
+  assert.doesNotMatch(llm.calls[1].messages[0].content[0].text, /guidelines/);
+  // Scoring sees the same guidelines.
+  await engine.score({
+    source: 'Hello',
+    translation: '你好',
+    kind: 'sentence',
+    targetLanguage: '中文',
+    spec,
+  });
+  prompt = llm.calls[2].messages[0].content[0].text;
+  assert.match(prompt, /guidelines below/);
+  assert.match(prompt, /### glossary\.md/);
+});
+
 test('translateBatch falls back to per-segment calls when the reply is not JSON', async () => {  const llm = makeLlm((_options, index) => (index === 0 ? 'Sorry, no JSON here.' : index === 1 ? '"甲"' : '乙'));
   const engine = makeEngine(llm);
   const out = await engine.translateBatch({

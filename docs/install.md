@@ -35,7 +35,7 @@ If you prefer files or want to script the setup, edit the profile's `package.jso
     }
   },
   "dependencies": {
-    "dsh-translation-assistant": "^1.17.3"
+    "dsh-translation-assistant": "^1.18.1"
   }
 }
 ```

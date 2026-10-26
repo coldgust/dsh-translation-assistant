@@ -251,6 +251,23 @@ window.__ModuleLoader__.load({
       wsSuffixLabel: '副本后缀',
       wsSubfolderName: '译文',
       wsAutoSave: '自动保存',
+      toastClose: '关闭提示',
+      wsSpecTitle: '规范',
+      wsSpecToggle: '附带规范',
+      wsSpecCount: '规范 {count} 个',
+      wsSpecEmpty: '还没有规范文档',
+      wsSpecAdd: '新增',
+      wsSpecCreate: '创建',
+      wsSpecNamePlaceholder: '文件名（英文）',
+      wsSpecSave: '保存',
+      wsSpecBack: '返回',
+      wsSpecDelete: '删除',
+      wsSpecConfirmDelete: '确认删除',
+      wsSpecSaved: '已保存 {name}。',
+      wsSpecDeleted: '已删除 {name}。',
+      wsSpecNameInvalid: '文件名只能用字母、数字、连字符或下划线。',
+      wsSpecSkipped: '{name} 太大，翻译时不会附带。',
+      wsDeleteFailed: '删除失败：{message}',
       wsTranslateAll: '翻译全部',
       wsTranslateAllHint: '按顺序翻译所有未翻译的文件，翻完可逐个校对；进行中可停止',
       wsBatchProgress: '批量翻译中 {done}/{total}…',
@@ -265,6 +282,7 @@ window.__ModuleLoader__.load({
       wsRetranslate: '重新翻译',
       wsBannerTarget: '译文保存到',
       wsBannerPreview: '预览',
+      wsBannerSpec: '规范',
       wsSaveToFile: '保存到文件',
       wsSaved: '已保存到 {path}。',
       wsBackToList: '回到列表',
@@ -468,6 +486,23 @@ window.__ModuleLoader__.load({
       wsSuffixLabel: 'Copy suffix',
       wsSubfolderName: 'translated',
       wsAutoSave: 'Auto-save',
+      toastClose: 'Dismiss message',
+      wsSpecTitle: 'Guidelines',
+      wsSpecToggle: 'Attach guidelines',
+      wsSpecCount: '{count} guideline docs',
+      wsSpecEmpty: 'No guideline docs yet',
+      wsSpecAdd: 'Add',
+      wsSpecCreate: 'Create',
+      wsSpecNamePlaceholder: 'File name',
+      wsSpecSave: 'Save',
+      wsSpecBack: 'Back',
+      wsSpecDelete: 'Delete',
+      wsSpecConfirmDelete: 'Confirm delete',
+      wsSpecSaved: 'Saved {name}.',
+      wsSpecDeleted: 'Deleted {name}.',
+      wsSpecNameInvalid: 'Use letters, digits, hyphens, or underscores only.',
+      wsSpecSkipped: '{name} is too large and is not attached.',
+      wsDeleteFailed: 'Deleting failed: {message}',
       wsTranslateAll: 'Translate all',
       wsTranslateAllHint: 'Translate every untranslated file in order, then proofread one by one; stoppable',
       wsBatchProgress: 'Batch translating {done}/{total}…',
@@ -481,6 +516,7 @@ window.__ModuleLoader__.load({
       wsRetranslate: 'Retranslate',
       wsBannerTarget: 'saves to',
       wsBannerPreview: 'Preview',
+      wsBannerSpec: 'Guidelines',
       wsSaveToFile: 'Save to file',
       wsSaved: 'Saved to {path}.',
       wsBackToList: 'Back to list',
@@ -1686,7 +1722,7 @@ function normalizeImportedText(raw) {
 /**
  * Normalize the stored workspace settings into a complete object.
  * @param {unknown} value - raw stored value.
- * @returns {{ output: 'subfolder' | 'suffix' | 'overwrite' | 'preview', suffix: string, autoSave: boolean }} settings.
+ * @returns {{ output: 'subfolder' | 'suffix' | 'overwrite' | 'preview', suffix: string, autoSave: boolean, useSpec: boolean }} settings.
  */
 function readWsSettings(value) {
   const raw = value && typeof value === 'object' ? value : {};
@@ -1698,6 +1734,8 @@ function readWsSettings(value) {
       ? raw.suffix.trim().replace(/^[.\\/]+/, '').replace(/[\\/]/g, '')
       : 'zh',
     autoSave: raw.autoSave === true,
+    // Guidelines attach by default; the user can switch them off per install.
+    useSpec: raw.useSpec !== false,
   };
 }
 
@@ -1976,7 +2014,13 @@ function storedRoutePreference(value) {
 .dta-histBtn[data-active="true"] .dta-histLabel{color:var(--dsw-alias-brand-primary)}
 .dta-newBtn{flex:none;padding:0 8px}
 .dta-drawerLayer{position:fixed;inset:0;z-index:120;display:flex;justify-content:flex-end;width:auto;max-width:none}
-.dta-toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:140;max-width:min(420px,80vw);padding:8px 14px;border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12.5px;line-height:18px;box-shadow:0 6px 20px rgba(0,0,0,.16);animation:dtaToastIn .18s ease-out}
+.dta-toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:140;display:flex;align-items:center;gap:8px;max-width:min(440px,80vw);padding:8px 12px 8px 14px;border-radius:var(--dsw-radius-md,8px);font-size:12.5px;line-height:18px;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,.22);animation:dtaToastIn .18s ease-out}
+.dta-toastText{min-width:0}
+.dta-toastClose{flex:none;width:18px;height:18px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:50%;background:rgba(255,255,255,.22);color:#fff;font-size:13px;line-height:1;cursor:pointer}
+.dta-toastClose:hover{background:rgba(255,255,255,.36)}
+.dta-toast--success{background:#16a34a}
+.dta-toast--info,.dta-toast--warn{background:#d97706}
+.dta-toast--error{background:#dc2626}
 @keyframes dtaToastIn{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}
 .dta-drawerMask{position:absolute;inset:0;background:rgba(14,16,20,.38);animation:dta-fade .16s ease-out both}
 .dta-drawer{position:relative;display:flex;flex-direction:column;width:min(392px,92vw);height:100%;min-width:0;border-left:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);box-shadow:-18px 0 44px rgba(14,16,20,.18);animation:dta-slide .2s cubic-bezier(.2,.7,.3,1) both}
@@ -2082,8 +2126,6 @@ function storedRoutePreference(value) {
 .dta-fileName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dta-fileClear{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1;cursor:pointer}
 .dta-fileClear:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}
-.dta-notice{margin:0;padding:8px 12px;border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:12.5px;line-height:18px}
-.dta-notice--error{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent)}
 .dta-ws{display:flex;flex-direction:column;gap:12px}
 .dta-wsHeadIcon{flex:none;color:var(--dsw-alias-brand-primary)}
 .dta-wsTitle{margin:0;font-size:15px;font-weight:600}
@@ -2102,6 +2144,24 @@ function storedRoutePreference(value) {
 .dta-wsCheck{cursor:pointer}
 .dta-wsCheck input{margin:0}
 .dta-wsBatch{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dta-wsSpecBar{display:flex}
+.dta-drawer--spec{width:min(468px,94vw)}
+.dta-wsSpecList{display:flex;flex-direction:column;gap:6px}
+.dta-wsSpecCard{display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-width:0;padding:9px 12px;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md,8px);background:color-mix(in srgb,var(--dsw-alias-label-primary) 6%,transparent);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;text-align:left}
+.dta-wsSpecCard:hover{background:var(--dsw-alias-bg-layer-2)}
+.dta-wsSpecCard:disabled{opacity:.6;cursor:default}
+.dta-wsSpecCardName{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.dta-wsSpecCardSize{color:var(--dsw-alias-label-secondary);font-size:11.5px}
+.dta-wsSpecCardChevron{color:var(--dsw-alias-label-secondary);font-size:14px;line-height:1}
+.dta-wsSpecSkipped{margin-top:8px}
+.dta-wsSpecSkip{margin:0;color:var(--dsw-alias-label-secondary);font-size:11.5px}
+.dta-wsSpecCreate{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.dta-wsSpecInput{flex:1;min-width:0;box-sizing:border-box;height:28px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-sm,6px);background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;outline:none}
+.dta-wsSpecEditor{display:flex;flex-direction:column;gap:10px}
+.dta-wsSpecEditorHead{display:flex;align-items:center;gap:8px}
+.dta-wsSpecEditorName{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:var(--dsw-alias-label-primary)}
+.dta-wsSpecHeadActions{display:flex;gap:8px}
+.dta-wsSpecText{width:100%;box-sizing:border-box;min-width:0;min-height:340px;resize:vertical;padding:10px;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md,8px);background:color-mix(in srgb,var(--dsw-alias-label-primary) 7%,transparent);color:var(--dsw-alias-label-primary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;outline:none}
 .dta-wsBatchInfo{color:var(--dsw-alias-label-secondary);font-size:12.5px}
 .dta-wsEmpty{margin:0;color:var(--dsw-alias-label-secondary);font-size:12.5px}
 .dta-wsList{list-style:none;display:flex;flex-direction:column;gap:2px;margin:0;padding:6px;border:1px solid var(--dsw-alias-border-secondary,rgba(127,127,127,.25));border-radius:var(--dsw-radius-md,8px)}
@@ -2124,6 +2184,10 @@ function storedRoutePreference(value) {
 .dta-wsBannerTag{flex:none;padding:1px 8px;border-radius:999px;background:var(--dsw-alias-brand-primary);color:#fff;font-size:11px}
 .dta-wsBannerName{font-weight:600}
 .dta-wsBannerPath{color:var(--dsw-alias-label-secondary);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dta-wsBannerSpec{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden}
+.dta-wsBannerSpecDivider{flex:none;width:1px;height:14px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 25%,transparent)}
+.dta-wsBannerSpecLabel{flex:none;padding:1px 7px;border-radius:999px;background:var(--dsw-alias-brand-primary);color:#fff;font-size:10.5px;font-weight:600;letter-spacing:.5px}
+.dta-wsBannerSpecChip{flex:none;max-width:140px;padding:1px 8px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent);color:var(--dsw-alias-label-primary);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dta-wsBannerActions{margin-left:auto;display:flex;gap:6px;flex:none}
 .dta-wsBtn[data-active="true"]{color:var(--dsw-alias-brand-primary)}
 .dta-list{display:flex;flex-direction:column;gap:12px}
@@ -2237,11 +2301,18 @@ function storedRoutePreference(value) {
       const [errors, setErrors] = React.useState({});
       const [promptFor, setPromptFor] = React.useState(null);
       const [promptText, setPromptText] = React.useState('');
+      // Message-style toast: every hint, success, and error surfaces here,
+      // auto-dismisses by kind (success 3s, info 5s, error 7s), and can be
+      // closed early with its own × button.
       const [notice, setNotice] = React.useState(null);
-      // Message-style toast: one transient line that clears itself, used for
-      // confirmations that do not need to persist (model switching).
-      const [toast, setToast] = React.useState('');
-      const toastTimer = React.useRef(null);
+      React.useEffect(() => {
+        if (!notice) return undefined;
+        const duration = notice.kind === 'success' ? 3000
+          : notice.kind === 'error' ? 7000
+            : 5000;
+        const timer = setTimeout(() => setNotice(null), duration);
+        return () => clearTimeout(timer);
+      }, [notice]);
       // The translation-mode help bubble; native `title` tooltips do not
       // surface inside the Harness webview, so the icon draws its own.
       const [modeHelpOpen, setModeHelpOpen] = React.useState(false);
@@ -2289,6 +2360,21 @@ function storedRoutePreference(value) {
       // Name of the workspace file currently translating on its own, so the
       // drawer can say which file is in flight instead of a generic label.
       const [wsTranslatingName, setWsTranslatingName] = React.useState('');
+      // Guideline documents (.translation-spec/*.md) of the open workspace;
+      // null until the first load, [] means none.
+      const [wsSpec, setWsSpec] = React.useState(null);
+      // Spec manager state: the open editor, the create form, and the name
+      // waiting for a delete confirmation.
+      const [wsSpecEditor, setWsSpecEditor] = React.useState(null);
+      const [wsSpecCreating, setWsSpecCreating] = React.useState(false);
+      const [wsSpecDraftName, setWsSpecDraftName] = React.useState('');
+      const [wsSpecConfirm, setWsSpecConfirm] = React.useState('');
+      // The guideline drawer is its own layer; opening it yields the
+      // workspace drawer's slot and closing hands it back.
+      const [wsSpecOpen, setWsSpecOpen] = React.useState(false);
+      // Spec text for the translation pass in flight; set only while a
+      // workspace file is translating, because the document is not open yet.
+      const specRef = React.useRef('');
       const wsBatchRef = React.useRef(null);
       const wsSaveTimer = React.useRef(null);
       // The document the last successful translation landed, so the batch
@@ -2570,16 +2656,25 @@ function storedRoutePreference(value) {
       }
 
       /**
-       * Show a transient toast that disappears on its own after 3 seconds.
-       * @param {string} text - message to show.
+       * Join the loaded guideline documents into one prompt string.
+       * @returns {string} concatenated documents, '' when none apply.
        */
-      function showToast(text) {
-        if (toastTimer.current) clearTimeout(toastTimer.current);
-        setToast(text);
-        toastTimer.current = setTimeout(() => {
-          toastTimer.current = null;
-          setToast('');
-        }, 3000);
+      function specText() {
+        if (!wsSpec || !wsSettings.useSpec || !wsSpec.docs.length) return '';
+        return wsSpec.docs
+          .map((entry) => `### ${entry.name}\n\n${String(entry.text ?? '').trim()}`)
+          .join('\n\n');
+      }
+
+      /**
+       * Spec fragment for model requests. A translating workspace file rides
+       * `specRef` (the document is not open yet); otherwise guidelines apply
+       * when the open document belongs to the workspace.
+       * @returns {{ spec?: string }} request fragment.
+       */
+      function specPayload() {
+        const text = specRef.current || (wsTarget && doc ? specText() : '');
+        return text ? { spec: text } : {};
       }
 
       /**
@@ -2589,13 +2684,19 @@ function storedRoutePreference(value) {
       function handleRouteChange(value) {
         if (value === 'default') {
           setRoute(null);
-          showToast(format(t('modelSwitchHint'), { model: defaultModel || t('modelFollowDefault') }));
+          setNotice({
+            kind: 'success',
+            text: format(t('modelSwitchHint'), { model: defaultModel || t('modelFollowDefault') }),
+          });
           return;
         }
         const entry = routes.find((item) => routeId(item) === value);
         if (!entry) return;
         setRoute({ provider: entry.provider, model: entry.model });
-        showToast(format(t('modelSwitchHint'), { model: entry.label || routeId(entry) }));
+        setNotice({
+          kind: 'success',
+          text: format(t('modelSwitchHint'), { model: entry.label || routeId(entry) }),
+        });
       }
 
       /**
@@ -2800,6 +2901,7 @@ function storedRoutePreference(value) {
             targetLanguage,
             ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
             ...routePayload(),
+            ...specPayload(),
           }, { signal });
           if (signal.aborted) throw abortedError();
           if (typeof data.document !== 'string' || !data.document.trim()) {
@@ -2844,6 +2946,7 @@ function storedRoutePreference(value) {
             targetLanguage,
             ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
             ...routePayload(),
+            ...specPayload(),
           }, { signal });
           if (signal.aborted) throw abortedError();
           const reply = Array.isArray(data.paragraphs) ? data.paragraphs : null;
@@ -2969,6 +3072,7 @@ function storedRoutePreference(value) {
                 targetLanguage,
                 ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
                 ...routePayload(),
+                ...specPayload(),
               }, { signal });
               if (typeof data.model === 'string' && data.model) replyModel = data.model;
               const list = chunk.kind === 'sentences' ? data.sentences : data.paragraphs;
@@ -3239,7 +3343,7 @@ function storedRoutePreference(value) {
           anchor.click();
           if (typeof anchor.remove === 'function') anchor.remove();
           if (typeof URL.revokeObjectURL === 'function') setTimeout(() => URL.revokeObjectURL(href), 0);
-          setNotice({ kind: 'info', text: format(t('downloaded'), { name }) });
+          setNotice({ kind: 'success', text: format(t('downloaded'), { name }) });
         } catch {
           setNotice({ kind: 'error', text: t('downloadFailed') });
         }
@@ -3284,6 +3388,7 @@ function storedRoutePreference(value) {
             targetLanguage,
             ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
             ...routePayload(),
+            ...specPayload(),
           });
           const value = Number(data.score);
           if (!Number.isFinite(value)) throw localError(t('scoreFailed'));
@@ -3358,6 +3463,7 @@ function storedRoutePreference(value) {
                 targetLanguage,
                 ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
                 ...routePayload(),
+                ...specPayload(),
               }, { signal });
               if (typeof data.translation === 'string' && data.translation.trim()) {
                 patchSegment(collection, item.id, { translation: data.translation.trim(), score: null });
@@ -3469,6 +3575,7 @@ function storedRoutePreference(value) {
             targetLanguage,
             ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
             ...routePayload(),
+            ...specPayload(),
           }, { signal });
           if (signal.aborted) throw abortedError();
           if (typeof data.translation !== 'string' || !data.translation.trim()) {
@@ -3540,6 +3647,7 @@ function storedRoutePreference(value) {
                 targetLanguage,
                 ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
                 ...routePayload(),
+                ...specPayload(),
               }, { signal });
               if (typeof data.translation === 'string' && data.translation.trim()) {
                 patchSegment('paragraphs', item.id, { translation: data.translation.trim(), score: null });
@@ -3604,6 +3712,7 @@ function storedRoutePreference(value) {
             targetLanguage,
             ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
             ...routePayload(),
+            ...specPayload(),
           }, { signal });
           if (signal.aborted) throw abortedError();
           if (typeof data.translation !== 'string' || !data.translation.trim()) {
@@ -3652,6 +3761,7 @@ function storedRoutePreference(value) {
             targetLanguage,
             ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
             ...routePayload(),
+            ...specPayload(),
           });
           const value = Number(data.score);
           if (!Number.isFinite(value)) throw localError(t('scoreFailed'));
@@ -3706,6 +3816,7 @@ function storedRoutePreference(value) {
                 targetLanguage,
                 ...(sourceOption ? { sourceLanguage: sourceOption } : {}),
                 ...routePayload(),
+                ...specPayload(),
               });
               const value = Number(data.score);
               if (Number.isFinite(value)) {
@@ -3876,8 +3987,150 @@ function storedRoutePreference(value) {
           setWsRootDraft(resolved);
           setWsFiles(Array.isArray(data.entries) ? data.entries : []);
           setNotice(null);
+          // Guidelines load on their own; a missing endpoint (older Host) or
+          // a missing folder just means there are none.
+          loadWorkspaceSpec(resolved);
         } catch (error) {
           setNotice({ kind: 'error', text: format(t('wsListFailed'), { message: wsDescribeError(error) }) });
+        }
+      }
+
+      /**
+       * Load the workspace's guideline documents from `.translation-spec`.
+       * @param {string} rootValue - workspace root.
+       */
+      async function loadWorkspaceSpec(rootValue) {
+        try {
+          const data = await requestJson('workspace/spec', { root: rootValue });
+          setWsSpec({
+            available: data.available === true,
+            docs: Array.isArray(data.docs) ? data.docs : [],
+            skipped: Array.isArray(data.skipped) ? data.skipped : [],
+          });
+        } catch {
+          setWsSpec({ available: false, docs: [], skipped: [] });
+        }
+      }
+
+      /**
+       * Normalize a draft spec file name into `<base>.md`; '' when invalid.
+       * @param {string} raw - user input.
+       * @returns {string} safe file name or ''.
+       */
+      function validateSpecName(raw) {
+        const base = String(raw ?? '').trim().replace(/\.md$/i, '');
+        return /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(base) ? `${base}.md` : '';
+      }
+
+      /** Open the guideline drawer; the workspace drawer yields its layer. */
+      function openSpecDrawer() {
+        setWsOpen(false);
+        setWsSpecEditor(null);
+        setWsSpecCreating(false);
+        setWsSpecDraftName('');
+        setWsSpecConfirm('');
+        setWsSpecOpen(true);
+      }
+
+      /** Close the guideline drawer and hand the layer back to the workspace. */
+      function closeSpecDrawer() {
+        setWsSpecOpen(false);
+        setWsSpecEditor(null);
+        setWsSpecCreating(false);
+        setWsSpecDraftName('');
+        setWsSpecConfirm('');
+        setWsOpen(true);
+      }
+
+      /** Reset the drawer to the create form. */
+      function startSpecCreate() {
+        setWsSpecEditor(null);
+        setWsSpecDraftName('');
+        setWsSpecConfirm('');
+        setWsSpecCreating(true);
+      }
+
+      /**
+       * Open the spec editor with a document's current content.
+       * @param {string} name - spec file name.
+       */
+      async function openSpecEditor(name) {
+        if (isWorking) return;
+        setWsSpecCreating(false);
+        setWsSpecConfirm('');
+        const known = wsSpec && wsSpec.docs.find((entry) => entry.name === name);
+        if (known) {
+          setWsSpecEditor({ name, content: known.text });
+          return;
+        }
+        try {
+          const data = await requestJson('workspace/read', {
+            root: wsRoot,
+            relPath: `.translation-spec/${name}`,
+          });
+          setWsSpecEditor({ name, content: typeof data.content === 'string' ? data.content : '' });
+        } catch (error) {
+          setNotice({ kind: 'error', text: format(t('wsReadFailed'), { name, message: wsDescribeError(error) }) });
+        }
+      }
+
+      /** Create an empty spec document and open it in the editor. */
+      async function handleSpecCreate() {
+        if (!wsRoot || isWorking) return;
+        const name = validateSpecName(wsSpecDraftName);
+        if (!name) {
+          setNotice({ kind: 'warn', text: t('wsSpecNameInvalid') });
+          return;
+        }
+        try {
+          await requestJson('workspace/write', {
+            root: wsRoot,
+            relPath: `.translation-spec/${name}`,
+            content: '',
+            overwrite: false,
+          });
+          setWsSpecCreating(false);
+          setWsSpecDraftName('');
+          await loadWorkspaceSpec(wsRoot);
+          setWsSpecEditor({ name, content: '' });
+        } catch (error) {
+          setNotice({ kind: 'error', text: format(t('wsWriteFailed'), { message: wsDescribeError(error) }) });
+        }
+      }
+
+      /** Save the open spec editor back to its file and refresh the list. */
+      async function handleSpecSave() {
+        if (!wsRoot || !wsSpecEditor || isWorking) return;
+        try {
+          await requestJson('workspace/write', {
+            root: wsRoot,
+            relPath: `.translation-spec/${wsSpecEditor.name}`,
+            content: wsSpecEditor.content,
+            overwrite: true,
+          });
+          setNotice({ kind: 'success', text: format(t('wsSpecSaved'), { name: wsSpecEditor.name }) });
+          setWsSpecEditor(null);
+          await loadWorkspaceSpec(wsRoot);
+        } catch (error) {
+          setNotice({ kind: 'error', text: format(t('wsWriteFailed'), { message: wsDescribeError(error) }) });
+        }
+      }
+
+      /** Delete a spec document; the first click only asks for confirmation. */
+      async function handleSpecDelete(name) {
+        if (!wsRoot || isWorking) return;
+        if (wsSpecConfirm !== name) {
+          setWsSpecConfirm(name);
+          return;
+        }
+        setWsSpecConfirm('');
+        try {
+          await requestJson('workspace/spec/delete', { root: wsRoot, name });
+          if (wsSpecEditor && wsSpecEditor.name === name) setWsSpecEditor(null);
+          setNotice({ kind: 'success', text: format(t('wsSpecDeleted'), { name }) });
+          await loadWorkspaceSpec(wsRoot);
+        } catch (error) {
+          setNotice({ kind: 'error', text: format(t('wsDeleteFailed'), { message: wsDescribeError(error) }) });
         }
       }
 
@@ -3994,7 +4247,7 @@ function storedRoutePreference(value) {
           await requestJson('workspace/write', { root, relPath: plan.relPath, content: `${text}\n`, overwrite: true });
           setWsStatusFor(root, entry.relPath, options.mark === 'translated' ? 'translated' : 'done');
           if (!options.quiet) {
-            setNotice({ kind: 'info', text: format(t('wsSaved'), { path: plan.relPath }) });
+            setNotice({ kind: 'success', text: format(t('wsSaved'), { path: plan.relPath }) });
           }
           return true;
         } catch (error) {
@@ -4029,11 +4282,13 @@ function storedRoutePreference(value) {
         }
         landedDocRef.current = null;
         setWsTranslatingName(entry.name);
+        specRef.current = specText();
         let landed;
         try {
           landed = await translateText(text, { fileName: entry.name });
         } finally {
           setWsTranslatingName('');
+          specRef.current = '';
         }
         if (!landed) return { ok: false, aborted: passAbortedRef.current };
         const root = wsRoot;
@@ -4125,7 +4380,7 @@ function storedRoutePreference(value) {
         const root = wsRoot;
         const pending = wsFiles.filter((entry) => !wsStatusOf(root, entry.relPath));
         if (pending.length === 0) {
-          setNotice({ kind: 'info', text: t('wsAllTranslated') });
+          setNotice({ kind: 'success', text: t('wsAllTranslated') });
           return;
         }
         const batch = { stopped: false };
@@ -4260,7 +4515,7 @@ function storedRoutePreference(value) {
       function handleSaveVersion() {
         if (!doc || isWorking) return;
         recordVersion(doc, 'manual');
-        setNotice({ kind: 'info', text: t('versionSaved') });
+        setNotice({ kind: 'success', text: t('versionSaved') });
       }
 
       /**
@@ -4278,7 +4533,7 @@ function storedRoutePreference(value) {
         setSourceLanguage(restored.sourceLanguage);
         setTargetLanguage(restored.targetLanguage);
         setNotice({
-          kind: 'info',
+          kind: 'success',
           text: format(t('versionRestored'), { label: versionLabel(version.kind, t) }),
         });
         resetSegmentState();
@@ -4495,6 +4750,9 @@ function storedRoutePreference(value) {
       function renderWorkspaceBanner() {
         if (!wsTarget || !doc) return null;
         const preview = Boolean(wsTarget.plan && wsTarget.plan.preview);
+        const specNames = wsSettings.useSpec && wsSpec && wsSpec.docs.length
+          ? wsSpec.docs.map((entry) => entry.name)
+          : [];
         return h('div', { className: 'dta-wsBanner' },
           h('span', { className: 'dta-wsBannerTag' }, t('workspace')),
           h('span', { className: 'dta-wsBannerName', title: wsTarget.relPath }, wsTarget.name),
@@ -4503,6 +4761,19 @@ function storedRoutePreference(value) {
             ? h('span', { className: 'dta-wsBannerPath' }, t('wsBannerPreview'))
             : h('span', { className: 'dta-wsBannerPath', title: wsTarget.plan.relPath },
               `${t('wsBannerTarget')} ${wsTarget.plan.relPath}`),
+          specNames.length
+            ? h('span', {
+              className: 'dta-wsBannerSpec',
+              title: specNames.join(' · '),
+            },
+              h('span', { className: 'dta-wsBannerSpecDivider', 'aria-hidden': true }),
+              h('span', { className: 'dta-wsBannerSpecLabel' }, t('wsBannerSpec')),
+              specNames.map((name) => h('span', {
+                key: name,
+                className: 'dta-wsBannerSpecChip',
+              }, name)),
+            )
+            : null,
           h('div', { className: 'dta-wsBannerActions' },
             preview
               ? null
@@ -4561,9 +4832,6 @@ function storedRoutePreference(value) {
               }, '×'),
             ),
             h('div', { className: 'dta-drawerBody dta-ws' },
-              notice && notice.text
-                ? h('p', { className: cx('dta-notice', notice.kind === 'error' && 'dta-notice--error') }, notice.text)
-                : null,
               wsRegistry && wsRegistry.available && wsRegistry.workspaces.length
                 ? h('div', { className: 'dta-wsRegistry' },
                   h('label', { className: 'dta-wsField' },
@@ -4673,6 +4941,28 @@ function storedRoutePreference(value) {
                 }),
                 h('span', null, t('wsAutoSave')),
               ),
+              h('label', { className: 'dta-wsField dta-wsCheck' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: wsSettings.useSpec,
+                  // Nothing to attach when the workspace has no guidelines.
+                  disabled: isWorking || Boolean(wsSpec && !wsSpec.docs.length),
+                  onChange: (event) => setWsSettings((current) => ({ ...current, useSpec: event.target.checked })),
+                }),
+                h('span', null, t('wsSpecToggle')),
+              ),
+            )
+            : null,
+          wsRoot
+            ? h('div', { className: 'dta-wsSpecBar' },
+              h('button', {
+                type: 'button',
+                className: 'dta-btn dta-btn--sm dta-btn--primary',
+                disabled: isWorking,
+                onClick: openSpecDrawer,
+              }, wsSpec && wsSpec.docs.length
+                ? format(t('wsSpecCount'), { count: wsSpec.docs.length })
+                : t('wsSpecTitle')),
             )
             : null,
           wsRoot && wsFiles.length
@@ -4706,6 +4996,141 @@ function storedRoutePreference(value) {
             )
             : null,
           ),
+          ),
+        );
+      }
+
+      /**
+       * Render the guideline drawer: the document list, or the editor pane
+       * while a document is open. Shares the visual language of the other
+       * drawers so it reads as one more panel of the same family.
+       */
+      function renderSpecDrawer() {
+        const docs = wsSpec && Array.isArray(wsSpec.docs) ? wsSpec.docs : [];
+        const skipped = wsSpec && Array.isArray(wsSpec.skipped) ? wsSpec.skipped : [];
+        return h('div', { className: 'dta-drawerLayer' },
+          h('div', {
+            className: 'dta-drawerMask',
+            'aria-hidden': true,
+            onClick: closeSpecDrawer,
+          }),
+          h('aside', {
+            className: 'dta-drawer dta-drawer--spec',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-label': t('wsSpecTitle'),
+          },
+            h('div', { className: 'dta-drawerHead' },
+              renderFolderIcon({ size: 15, className: 'dta-wsHeadIcon' }),
+              h('h2', { className: 'dta-drawerTitle' }, t('wsSpecTitle')),
+              docs.length
+                ? h('span', { className: 'dta-wsCount' }, format(t('wsSpecCount'), { count: docs.length }))
+                : null,
+              h('button', {
+                type: 'button',
+                className: 'dta-btn dta-btn--sm',
+                disabled: isWorking,
+                onClick: startSpecCreate,
+              }, t('wsSpecAdd')),
+              h('button', {
+                type: 'button',
+                className: 'dta-drawerClose',
+                title: t('closePanel'),
+                'aria-label': t('closePanel'),
+                onClick: closeSpecDrawer,
+              }, '×'),
+            ),
+            h('div', { className: 'dta-drawerBody dta-wsSpec' },
+              h('p', { className: 'dta-wsRootPath', title: '.translation-spec/' }, '.translation-spec/'),
+              wsSpecCreating
+                ? h('div', { className: 'dta-wsSpecCreate' },
+                  h('input', {
+                    className: 'dta-wsSpecInput',
+                    type: 'text',
+                    placeholder: t('wsSpecNamePlaceholder'),
+                    value: wsSpecDraftName,
+                    maxLength: 64,
+                    spellCheck: false,
+                    disabled: isWorking,
+                    onChange: (event) => setWsSpecDraftName(event.target.value),
+                  }),
+                  h('button', {
+                    type: 'button',
+                    className: 'dta-btn dta-btn--sm dta-btn--primary',
+                    disabled: isWorking,
+                    onClick: handleSpecCreate,
+                  }, t('wsSpecCreate')),
+                  h('button', {
+                    type: 'button',
+                    className: 'dta-btn dta-btn--sm',
+                    disabled: isWorking,
+                    onClick: () => setWsSpecCreating(false),
+                  }, t('promptCancel')),
+                )
+                : null,
+              wsSpecEditor
+                ? h('div', { className: 'dta-wsSpecEditor' },
+                  h('div', { className: 'dta-wsSpecEditorHead' },
+                    h('button', {
+                      type: 'button',
+                      className: 'dta-btn dta-btn--sm',
+                      disabled: isWorking,
+                      onClick: () => setWsSpecEditor(null),
+                    }, t('wsSpecBack')),
+                    h('span', { className: 'dta-wsSpecEditorName', title: wsSpecEditor.name }, wsSpecEditor.name),
+                    h('div', { className: 'dta-wsSpecHeadActions' },
+                      h('button', {
+                        type: 'button',
+                        className: 'dta-btn dta-btn--sm dta-btn--primary',
+                        disabled: isWorking,
+                        onClick: handleSpecSave,
+                      }, t('wsSpecSave')),
+                      h('button', {
+                        type: 'button',
+                        className: 'dta-btn dta-btn--sm',
+                        disabled: isWorking,
+                        onClick: () => handleSpecDelete(wsSpecEditor.name),
+                      }, wsSpecConfirm === wsSpecEditor.name
+                        ? t('wsSpecConfirmDelete')
+                        : t('wsSpecDelete')),
+                    ),
+                  ),
+                  h('textarea', {
+                    className: 'dta-wsSpecText',
+                    value: wsSpecEditor.content,
+                    rows: 14,
+                    spellCheck: false,
+                    disabled: isWorking,
+                    onChange: (event) => setWsSpecEditor(
+                      (current) => (current ? { ...current, content: event.target.value } : current),
+                    ),
+                  }),
+                )
+                : h('div', { className: 'dta-wsSpecList' },
+                  docs.length
+                    ? docs.map((entry) => h('button', {
+                      key: entry.name,
+                      type: 'button',
+                      className: 'dta-wsSpecCard',
+                      disabled: isWorking,
+                      title: entry.name,
+                      onClick: () => openSpecEditor(entry.name),
+                    },
+                      h('span', { className: 'dta-wsSpecCardName' }, entry.name),
+                      h('span', { className: 'dta-wsSpecCardSize' }, wsFormatSize(entry.bytes)),
+                      h('span', { className: 'dta-wsSpecCardChevron', 'aria-hidden': true }, '›'),
+                    ))
+                    : h('p', { className: 'dta-wsEmpty' }, t('wsSpecEmpty')),
+                  skipped.length
+                    ? h('div', { className: 'dta-wsSpecSkipped' },
+                      skipped.map((entry) => h('p', {
+                        key: entry.name,
+                        className: 'dta-wsSpecSkip',
+                      }, format(t('wsSpecSkipped'), { name: entry.name }))),
+                    )
+                    : null,
+                ),
+            ),
           ),
         );
       }
@@ -5710,9 +6135,6 @@ function storedRoutePreference(value) {
             ),
             h('p', { className: 'dta-intro' }, t('intro')),
           ),
-          notice && notice.text
-            ? h('p', { className: cx('dta-notice', notice.kind === 'error' && 'dta-notice--error') }, notice.text)
-            : null,
           h(React.Fragment, null,
             wsTarget && doc ? renderWorkspaceBanner() : null,
             doc ? renderDocument() : renderLanding(),
@@ -5725,8 +6147,17 @@ function storedRoutePreference(value) {
         historyOpen ? renderHistoryDrawer() : null,
         versionsOpen ? renderVersionsDrawer() : null,
         wsOpen ? renderWorkspaceDrawer() : null,
-        toast
-          ? h('div', { className: 'dta-toast', role: 'status' }, toast)
+        wsSpecOpen ? renderSpecDrawer() : null,
+        notice
+          ? h('div', { className: `dta-toast dta-toast--${notice.kind}`, role: 'status' },
+            h('span', { className: 'dta-toastText' }, notice.text),
+            h('button', {
+              type: 'button',
+              className: 'dta-toastClose',
+              'aria-label': t('toastClose'),
+              onClick: () => setNotice(null),
+            }, '×'),
+          )
           : null,
       );
     }

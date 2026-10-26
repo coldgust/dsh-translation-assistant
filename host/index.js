@@ -18,7 +18,7 @@ import path from 'node:path';
 
 const API_PREFIX = '/dsh-translation/api';
 /** Build marker surfaced by the health endpoint; bumped when Host behavior changes. */
-const HOST_REVISION = '9';
+const HOST_REVISION = '10';
 const MAX_BODY_BYTES = 24 * 1024 * 1024;
 const MAX_SEGMENTS = 400;
 const MAX_SEGMENT_CHARS = 20_000;
@@ -452,6 +452,23 @@ function optionalLanguage(body, field) {
   return optionalText(body, field, 40);
 }
 
+/** Largest guideline text one model request may carry. */
+const MAX_SPEC_CHARS = 320 * 1024;
+
+/**
+ * Read the optional workspace guideline text a page request carries.
+ * @param {Record<string, unknown>} body - parsed body.
+ * @returns {string | undefined} guideline text, or undefined when absent.
+ */
+function readSpecField(body) {
+  const text = body && typeof body.spec === 'string' ? body.spec.trim() : '';
+  if (!text) return undefined;
+  if (text.length > MAX_SPEC_CHARS) {
+    throw httpError(400, `The guidelines exceed the ${Math.round(MAX_SPEC_CHARS / 1024)} KB limit.`);
+  }
+  return text;
+}
+
 /**
  * Read one list of source segments, rejecting empty entries.
  * @param {Record<string, unknown>} body - parsed body.
@@ -628,7 +645,7 @@ function createHandler(ctx, engine, settings, catalog) {
           })),
           modelFailures: failures,
           targetLanguage: settings.targetLanguage,
-          features: ['translate', 'retranslate', 'score', 'score-document', 'ocr', 'models', 'workspace'],
+          features: ['translate', 'retranslate', 'score', 'score-document', 'ocr', 'models', 'workspace', 'workspace-spec'],
         });
         return;
       }
@@ -644,7 +661,9 @@ function createHandler(ctx, engine, settings, catalog) {
         && pathname !== `${API_PREFIX}/workspace/registry`
         && pathname !== `${API_PREFIX}/workspace/list`
         && pathname !== `${API_PREFIX}/workspace/read`
-        && pathname !== `${API_PREFIX}/workspace/write`) {
+        && pathname !== `${API_PREFIX}/workspace/write`
+        && pathname !== `${API_PREFIX}/workspace/spec`
+        && pathname !== `${API_PREFIX}/workspace/spec/delete`) {
         sendJson(response, 404, { error: 'Unknown endpoint.' });
         return;
       }
@@ -685,6 +704,16 @@ function createHandler(ctx, engine, settings, catalog) {
         sendJson(response, 200, await workspace.write(body.root, body.relPath, body.content, body.overwrite === true));
         return;
       }
+      if (pathname === `${API_PREFIX}/workspace/spec`) {
+        assertWorkspaceRoot(body.root);
+        sendJson(response, 200, await workspace.readSpec(body.root));
+        return;
+      }
+      if (pathname === `${API_PREFIX}/workspace/spec/delete`) {
+        assertWorkspaceRoot(body.root);
+        sendJson(response, 200, await workspace.deleteSpec(body.root, body.name));
+        return;
+      }
       // Only pay for catalog discovery when the caller actually overrides the
       // model; the common path keeps talking to the configured route.
       const route = body.route === undefined || body.route === null
@@ -708,6 +737,7 @@ function createHandler(ctx, engine, settings, catalog) {
             targetLanguage,
             sourceLanguage,
             route,
+            spec: readSpecField(body),
           });
           sendJson(response, 200, {
             paragraphs: translated,
@@ -724,6 +754,7 @@ function createHandler(ctx, engine, settings, catalog) {
             targetLanguage,
             sourceLanguage,
             route,
+            spec: readSpecField(body),
           });
           sendJson(response, 200, { document: translated, targetLanguage, model: engine.modelLabel(route) });
           return;
@@ -736,10 +767,10 @@ function createHandler(ctx, engine, settings, catalog) {
         }
         const [translatedSentences, translatedParagraphs] = await Promise.all([
           sentences.length > 0
-            ? engine.translateBatch({ segments: sentences, kind: 'sentence', targetLanguage, sourceLanguage, route })
+            ? engine.translateBatch({ segments: sentences, kind: 'sentence', targetLanguage, sourceLanguage, route, spec: readSpecField(body) })
             : [],
           paragraphs.length > 0
-            ? engine.translateBatch({ segments: paragraphs, kind: 'paragraph', targetLanguage, sourceLanguage, route })
+            ? engine.translateBatch({ segments: paragraphs, kind: 'paragraph', targetLanguage, sourceLanguage, route, spec: readSpecField(body) })
             : [],
         ]);
         sendJson(response, 200, {
@@ -769,6 +800,7 @@ function createHandler(ctx, engine, settings, catalog) {
           targetLanguage,
           sourceLanguage,
           route,
+          spec: readSpecField(body),
         });
         sendJson(response, 200, { translation: revised, kind, model: engine.modelLabel(route) });
         return;
@@ -781,7 +813,7 @@ function createHandler(ctx, engine, settings, catalog) {
         }
         const targetLanguage = optionalLanguage(body, 'targetLanguage') ?? settings.targetLanguage;
         const sourceLanguage = optionalLanguage(body, 'sourceLanguage') ?? settings.sourceLanguage;
-        const scored = await engine.scoreDocument({ source, translation, targetLanguage, sourceLanguage, route });
+        const scored = await engine.scoreDocument({ source, translation, targetLanguage, sourceLanguage, route, spec: readSpecField(body) });
         sendJson(response, 200, { ...scored, model: engine.modelLabel(route) });
         return;
       }
@@ -832,6 +864,7 @@ function createHandler(ctx, engine, settings, catalog) {
         targetLanguage,
         sourceLanguage,
         route,
+        spec: readSpecField(body),
       });
       sendJson(response, 200, { ...scored, kind, model: engine.modelLabel(route) });
     } catch (error) {

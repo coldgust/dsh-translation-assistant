@@ -49,6 +49,7 @@ dsh plugin --profile web add dsh-translation-assistant
 - 目录树按文件夹折叠；单击文件名即可打开——未翻译的文件随即开始翻译，已翻译的直接进入校对。
 - 译文输出到 `translated/` 子文件夹（默认）、同目录后缀副本、覆盖原文件，或只在页面上查看、不写入磁盘；`.docx` 的译文一律存成 `.md`。校对改动可开启自动保存，或手动保存。
 - 「翻译全部」按顺序处理未翻译的文件并逐个写入磁盘；可随时停止，已写入的结果保留。查看工作区文件时，工作区按钮会显示所在项目的名字。
+- 工作区下的 `.translation-spec/` 目录存放翻译规范文档（`glossary.md`、`style.md` 等），翻译、重译、评分等 AI 请求自动附带；抽屉里可查看、编辑、新增、删除。
 
 ![工作区抽屉：侧边的目录树、输出设置与批量翻译](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/workspace-drawer.png)
 

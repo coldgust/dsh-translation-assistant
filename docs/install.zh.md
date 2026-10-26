@@ -35,7 +35,7 @@
     }
   },
   "dependencies": {
-    "dsh-translation-assistant": "^1.17.3"
+    "dsh-translation-assistant": "^1.18.1"
   }
 }
 ```

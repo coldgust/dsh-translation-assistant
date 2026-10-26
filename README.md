@@ -49,6 +49,7 @@ Local checkout, Git address, manual registry, and upgrading or uninstalling: [do
 - The tree folds by folder; clicking a file name opens it — untranslated files start translating immediately, translated ones reopen for proofreading.
 - Output goes to a `translated/` subfolder (default), a suffixed sibling copy, over the original, or stays on the page only without touching disk; `.docx` translations always save as `.md`. Proofread edits can auto-save or wait for the save button.
 - `Translate all` walks the pending files in order and saves each result; a stop ends the run after the file in flight. While workspace content is open, the workspace button shows the project's name.
+- A `.translation-spec/` folder in the workspace holds guideline documents (`glossary.md`, `style.md`, …) that ride along on every AI pass; the drawer can view, edit, create, and delete them.
 
 ![The workspace drawer: the folder tree on the side, output settings, and batch translation](https://raw.githubusercontent.com/coldgust/dsh-translation-assistant/main/docs/screenshots/workspace-drawer.png)
 

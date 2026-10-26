@@ -64,6 +64,7 @@ History, edits, and preferences never leave the browser; only the text being tra
 - Images: PNG, JPEG, WebP, or GIF, up to 12 MiB each and 24 MiB per request.
 - Imported files: up to 8 MiB each, and the extracted text still has to fit the 120,000-character translation budget. `.docx` unpacking needs the browser's `DecompressionStream` (Chrome 80+, Firefox 113+, Safari 16.4+); elsewhere the page asks for `.txt`, `.md`, or `.html` instead.
 - Workspace files: reads accept `.txt`, `.text`, `.md`, `.markdown`, `.log`, `.html`, `.htm`, `.xhtml`, and (read-only) `.docx`; writes are text-only, 8 MiB per write; listings walk at most 6 levels deep and return 500 files.
+- Translation guidelines: a `.translation-spec/` folder in the workspace root holds `.md` documents that ride along on every translate, retranslate, score, and rewrite request (up to 20 docs, 64 KiB each, 256 KiB total; the rest is skipped). The drawer can view, edit, create, and delete them; attaching is on by default and can be switched off.
 - HTML import translates visible text only: scripts, styles, the head, and attributes are dropped. The downloaded HTML keeps one `<p>` per translated paragraph and does not restore inline markup such as links or emphasis.
 - Scoring asks for the stable `SCORE:` / `COMMENT:` pair, falls back to JSON, and retries once when the model breaks that shape. A score is a model judgement, not a certified metric.
 
@@ -72,7 +73,7 @@ History, edits, and preferences never leave the browser; only the text being tra
 This directory is the installed bundle (the profile links it), so `client.js` is hot-swapped into the open page; Host changes need a Harness restart.
 
 ```bash
-# 129 unit/integration tests: engine (translation/retranslation/scoring/OCR),
+# 134 unit/integration tests: engine (translation/retranslation/scoring/OCR),
 # the HTTP handler, model-catalog discovery and route overrides, the workspace
 # file endpoints, and the page rendered through a minimal React harness (no
 # browser needed).

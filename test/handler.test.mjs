@@ -170,7 +170,7 @@ test('health endpoint reports the resolved model', async () => {
   const response = await call(handler, { method: 'GET', path: '/dsh-translation/api/health' });
   assert.equal(response.status, 200);
   assert.equal(response.json.ok, true);
-  assert.equal(response.json.revision, '9');
+  assert.equal(response.json.revision, '10');
   assert.ok(response.json.features.includes('ocr'));
   assert.ok(response.json.features.includes('score-document'));
   assert.ok(response.json.features.includes('models'));
@@ -697,6 +697,66 @@ test('workspace/write creates files, refuses overwrite unless asked', async () =
       body: { root: ws.root, relPath: 'out.docx', content: 'nope' },
     });
     assert.equal(binary.status, 400);
+  } finally {
+    await ws.cleanup();
+  }
+});
+
+test('workspace/spec lists the guideline documents with their content', async () => {
+  const { handler } = createHarness();
+  const ws = await makeWorkspace();
+  try {
+    const none = await call(handler, { path: '/dsh-translation/api/workspace/spec', body: { root: ws.root } });
+    assert.equal(none.status, 200);
+    assert.equal(none.json.available, true, 'a missing folder still counts as a working endpoint');
+    assert.deepEqual(none.json.docs, []);
+
+    const dir = path.join(ws.root, '.translation-spec');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'style.md'), 'Keep sentences short.');
+    await writeFile(path.join(dir, 'glossary.md'), 'AI → 人工智能');
+    await writeFile(path.join(dir, 'note.txt'), 'not a guideline');
+    await writeFile(path.join(dir, 'huge.md'), 'x'.repeat(64 * 1024 + 1));
+
+    const response = await call(handler, { path: '/dsh-translation/api/workspace/spec', body: { root: ws.root } });
+    assert.equal(response.status, 200);
+    assert.equal(response.json.available, true);
+    // Sorted by name; only .md files; the oversized one is skipped, not fatal.
+    assert.deepEqual(response.json.docs.map((entry) => entry.name), ['glossary.md', 'style.md']);
+    assert.equal(response.json.docs[0].text, 'AI → 人工智能');
+    assert.deepEqual(response.json.skipped, [{ name: 'huge.md', reason: 'too_large' }]);
+  } finally {
+    await ws.cleanup();
+  }
+});
+
+test('workspace/spec/delete removes one guideline document', async () => {
+  const { handler } = createHarness();
+  const ws = await makeWorkspace();
+  try {
+    const dir = path.join(ws.root, '.translation-spec');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'style.md'), 'Keep sentences short.');
+
+    const bad = await call(handler, {
+      path: '/dsh-translation/api/workspace/spec/delete',
+      body: { root: ws.root, name: '../escape.md' },
+    });
+    assert.equal(bad.status, 400);
+
+    const missing = await call(handler, {
+      path: '/dsh-translation/api/workspace/spec/delete',
+      body: { root: ws.root, name: 'nope.md' },
+    });
+    assert.equal(missing.status, 404);
+
+    const removed = await call(handler, {
+      path: '/dsh-translation/api/workspace/spec/delete',
+      body: { root: ws.root, name: 'style.md' },
+    });
+    assert.equal(removed.status, 200);
+    assert.equal(removed.json.name, 'style.md');
+    await assert.rejects(readFile(path.join(dir, 'style.md'), 'utf8'));
   } finally {
     await ws.cleanup();
   }
