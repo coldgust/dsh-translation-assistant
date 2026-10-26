@@ -1,0 +1,53 @@
+# Run on every push and pull request: tests, package integrity, and a
+# smoke check that the packed plugin actually loads.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Pack plugin
+        run: npm pack
+
+      - name: Verify packed files match source
+        run: |
+          mkdir -p /tmp/pack-smoke && tar -xzf *.tgz -C /tmp/pack-smoke
+          missing=0
+          for f in host/*.js client.js locale/*.json cordis.patch.yml icon.svg; do
+            if [ ! -f "/tmp/pack-smoke/package/$f" ]; then
+              echo "MISSING from package: $f"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::package.json 'files' is missing source files — fix the 'files' whitelist"
+            exit 1
+          fi
+          echo "all source files present in package"
+
+      - name: Smoke-test the packed bundle
+        run: |
+          node --input-type=module -e "
+            import('/tmp/pack-smoke/package/host/index.js').then((m) => {
+              if (typeof m.apply !== 'function') throw new Error('apply export missing');
+              console.log('packed bundle loads, apply export OK');
+            }).catch((e) => { console.error(e.message); process.exit(1); });
+          "
