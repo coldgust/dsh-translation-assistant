@@ -1,6 +1,6 @@
 {
   "name": "dsh-translation-assistant",
-  "version": "1.17.4",
+  "version": "1.18.0",
   "description": "Translate text, files, screenshots, and whole folders; proofread side by side as AI retranslates, scores, and rewrites from your notes. AI at every step.",
   "license": "Apache-2.0",
   "author": "coldgust",
@@ -40,8 +40,7 @@
     "./icon": "./icon.svg"
   },
   "files": [
-    "host/index.js",
-    "host/engine.js",
+    "host/*.js",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
