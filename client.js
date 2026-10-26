@@ -68,7 +68,7 @@ window.__ModuleLoader__.load({
     const zh = {
       panel: '翻译助手',
       title: '翻译助手',
-      intro: '粘贴原文或导入文件（.txt / .md / .html / .docx），逐段或逐句对照翻译；译文可直接修改，也能让 AI 重译。模型可在头部切换；翻译自动存进本机历史，AI 改动前留一份修改记录，随时回退，还支持图片取字、全文复制、下载和评分。',
+      intro: 'AI 起稿，你来审校：粘贴原文或导入文件，逐段或逐句对照翻译；译文可直接改，也能打分留言让 AI 重写，还能换一个模型评审。翻译自动存进本机历史，AI 改动前留修改记录，随时回退；图片取字、全文复制、下载和评分都齐了。',
       sourceLanguage: '原文语言',
       targetLanguage: '目标语言',
       autoDetect: '自动检测',
@@ -303,7 +303,7 @@ window.__ModuleLoader__.load({
     const en = {
       panel: 'Translation Assistant',
       title: 'Translation Assistant',
-      intro: 'Paste the source or import a file (.txt / .md / .html / .docx) and translate it paragraph by paragraph — or sentence by sentence. Edit any translation or ask AI to redo it, switch the model in the header, and keep every document in on-device history. Every AI pass leaves a revision you can roll back to, and images, full-text copy, download, and document scoring are built in.',
+      intro: 'AI drafts, you review: paste the source or import a file, and translate it side by side, paragraph by paragraph or sentence by sentence. Edit any translation, or leave a score and a comment for AI to rewrite — with a different model if you like. Every document lands in on-device history, every AI pass leaves a revision you can roll back to, and image OCR, full-text copy, download, and scoring are built in.',
       sourceLanguage: 'Source language',
       targetLanguage: 'Target language',
       autoDetect: 'Auto-detect',

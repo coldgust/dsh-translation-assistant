@@ -1,7 +1,7 @@
 {
   "name": "dsh-translation-assistant",
-  "version": "1.18.1",
-  "description": "Translate text, files, screenshots, and whole folders; proofread side by side as AI retranslates, scores, and rewrites from your notes. AI at every step.",
+  "version": "1.19.0",
+  "description": "AI drafts, you review: text, files, screenshots, and whole folders translated with your guidelines attached; scores and comments become AI rewrites. An end-to-end AI translation workflow.",
   "license": "Apache-2.0",
   "author": "coldgust",
   "type": "module",
