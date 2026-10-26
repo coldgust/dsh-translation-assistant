@@ -1,0 +1,114 @@
+# Publish the plugin to the public npm registry when a GitHub Release is
+# published. Beta releases go to the `next` dist-tag so that `latest` always
+# points at a stable version.
+#
+# Auth is npm trusted publishing (OIDC) — no NPM_TOKEN secret exists anywhere.
+# GitHub mints a short-lived token per run and npm verifies it against the
+# trusted publisher configured for this package.
+#
+# Setup (one time, on npmjs.com):
+#   Package page > Settings > Trusted publishing > Add trusted publisher:
+#     Provider           GitHub Actions
+#     Organization       coldgust
+#     Repository         dsh-translation-assistant
+#     Workflow filename  npm-publish.yml        <- filename only, must match this file
+#     Environment        (leave empty)
+#     Allowed actions    tick "Allow npm publish" (configs created after
+#                        2026-09-03 default to staged publishing only)
+#   All fields are case-sensitive and npm does not validate them on save, so a
+#   typo only surfaces as ENEEDAUTH during a release. The first publish must
+#   succeed within 2 days of creating the config or it expires.
+#
+# Provenance is attached automatically: OIDC + public repo + public package.
+# (A private repository would drop provenance, so keep this repo public.)
+
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+  # Manual escape hatch: re-publish the current commit under a chosen dist-tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Dist-tag to publish under
+        type: choice
+        default: next
+        options: [next, latest]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required: lets the job request the OIDC token npm exchanges
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Publish exactly the tagged commit, not whatever main has moved to.
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      # v6 is the version npm's own trusted-publishing example uses; its
+      # `package-manager-cache` input is the supported way to keep caching off.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24 # bundles npm 11.6+, above the 11.5.1 OIDC minimum
+          registry-url: https://registry.npmjs.org
+          # Release builds are not reproducible from a warm cache, so skip it.
+          package-manager-cache: false
+
+      - name: Check npm supports trusted publishing
+        run: |
+          echo "node $(node -v), npm $(npm -v)"
+          major="$(npm -v | cut -d. -f1)"
+          minor="$(npm -v | cut -d. -f2)"
+          if [ "$major" -lt 11 ] || { [ "$major" -eq 11 ] && [ "$minor" -lt 5 ]; }; then
+            echo "::error::npm $(npm -v) cannot do OIDC publishing — needs >= 11.5.1 (Node >= 22.14)"
+            exit 1
+          fi
+
+      # The package has no dependencies and no build step, so the tests run on a
+      # bare checkout. If devDependencies ever appear, install before this step.
+      - name: Run tests
+        run: npm test
+
+      - name: Check package.json version matches the release tag
+        run: |
+          version="$(npm pkg get version | tr -d '"')"
+          tag="${{ github.event.release.tag_name }}"
+          if [ -n "$tag" ]; then
+            tag="${tag#v}"
+            if [ "$version" != "$tag" ]; then
+              echo "::error::package.json says $version but the release tag is $tag — bump the version (or fix the tag) and release again"
+              exit 1
+            fi
+          fi
+          echo "publishing version $version"
+
+      - name: Resolve dist-tag
+        id: dist
+        run: |
+          tag="${{ inputs.tag }}"
+          if [ -z "$tag" ]; then
+            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+              tag=next
+            else
+              tag=latest
+            fi
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "will publish with --tag $tag"
+
+      # No token is passed here. setup-node writes an .npmrc pointing at
+      # ${NODE_AUTH_TOKEN} and exports a dummy value for it; npm 11.5+ prefers
+      # the OIDC exchange over that placeholder. Supplying a real token would
+      # take over and defeat the point. Provenance rides along with OIDC.
+      - name: Publish to npm
+        run: npm publish --tag "${{ steps.dist.outputs.tag }}"
