@@ -1,8 +1,9 @@
+// @ts-nocheck - Phase 0: plain JS harness, types are added in later phases.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 
-import { apply } from '../host/index.js';
+import { apply } from '../lib/index.js';
 
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -170,7 +171,7 @@ test('health endpoint reports the resolved model', async () => {
   const response = await call(handler, { method: 'GET', path: '/dsh-translation/api/health' });
   assert.equal(response.status, 200);
   assert.equal(response.json.ok, true);
-  assert.equal(response.json.revision, '10');
+  assert.equal(response.json.revision, '11');
   assert.ok(response.json.features.includes('ocr'));
   assert.ok(response.json.features.includes('score-document'));
   assert.ok(response.json.features.includes('models'));

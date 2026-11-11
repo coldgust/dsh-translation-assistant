@@ -21,32 +21,39 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Type-check and verify build artifacts
+        run: |
+          pnpm typecheck
+          pnpm build:check
+
       - name: Run tests
         run: pnpm test
 
       - name: Pack plugin
-        run: npm pack
+        run: |
+          mkdir -p /tmp/pack-smoke-tgz
+          pnpm pack --pack-destination /tmp/pack-smoke-tgz
 
       - name: Verify packed files match source
         run: |
-          mkdir -p /tmp/pack-smoke && tar -xzf *.tgz -C /tmp/pack-smoke
+          mkdir -p /tmp/pack-smoke && tar -xzf /tmp/pack-smoke-tgz/*.tgz -C /tmp/pack-smoke
           missing=0
-          for f in host/*.js client.js locale/*.json cordis.patch.yml icon.svg; do
+          for f in lib/client.js lib/index.js lib/host/index.js lib/host/engine.js lib/host/workspace.js locale/*.json cordis.patch.yml icon.svg; do
             if [ ! -f "/tmp/pack-smoke/package/$f" ]; then
               echo "MISSING from package: $f"
               missing=1
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            echo "::error::package.json 'files' is missing source files — fix the 'files' whitelist"
+            echo "::error::package.json 'files' is missing build artifacts — fix the 'files' whitelist"
             exit 1
           fi
-          echo "all source files present in package"
+          echo "all build artifacts present in package"
 
       - name: Smoke-test the packed bundle
         run: |
           node --input-type=module -e "
-            import('/tmp/pack-smoke/package/host/index.js').then((m) => {
+            import('/tmp/pack-smoke/package/lib/index.js').then((m) => {
               if (typeof m.apply !== 'function') throw new Error('apply export missing');
               console.log('packed bundle loads, apply export OK');
             }).catch((e) => { console.error(e.message); process.exit(1); });

@@ -1,3 +1,4 @@
+// @ts-nocheck - Phase 0: plain JS harness, types are added in later phases.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -7,7 +8,7 @@ import {
   parseJsonLoose,
   parseScore,
   stripWrapping,
-} from '../host/engine.js';
+} from '../lib/host/engine.js';
 
 /**
  * Build a fake abstract-LLM service. `script` is either a list of replies or a

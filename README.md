@@ -95,7 +95,7 @@ Local checkout, Git address, manual registry, and upgrading or uninstalling: [do
 
 ## How it works
 
-`host/index.js` registers a same-origin `/dsh-translation/api` route and the Agent tool, `host/engine.js` does the model work (no Harness imports), and `client.js` is the page. POSTs are origin-checked and capped at 24 MiB, and every request can pin a `route: { provider, model }`.
+`src/host/index.ts` registers a same-origin `/dsh-translation/api` route and the Agent tool, `src/host/engine.ts` does the model work (no Harness imports), and `src/client/` holds the browser half split by function: entry, dictionaries, stylesheet, core helpers, leaf components and the page component. `pnpm build` writes the shipped `lib/` artifacts. POSTs are origin-checked and capped at 24 MiB, and every request can pin a `route: { provider, model }`.
 
 Endpoints, configuration fields, on-device storage, the full limits, and maintainer notes: [docs/reference.md](docs/reference.md).
 
@@ -106,10 +106,11 @@ History, edits, and preferences never leave the browser; only the text being tra
 ## Development and verification
 
 ```bash
-node --test 'test/*.test.mjs'
+pnpm install
+pnpm check
 ```
 
-The repository doubles as the installed bundle: `client.js` hot-swaps into the open page, Host changes need a Harness restart. The screenshots in `docs/screenshots/` are real renders against mocked data — retake them after layout changes.
+The profile links this checkout: run `pnpm build` after edits, then `lib/client.js` hot-swaps into the open page; Host changes need a Harness restart. The screenshots in `docs/screenshots/` are real renders against mocked data — retake them after layout changes.
 
 ## Troubleshooting
 

@@ -3,8 +3,8 @@
 # points at a stable version.
 #
 # Auth is npm trusted publishing (OIDC) — no NPM_TOKEN secret exists anywhere.
-# GitHub mints a short-lived token per run and npm verifies it against the
-# trusted publisher configured for this package.
+# GitHub mints a short-lived token per run, pnpm exchanges it for a publish
+# credential, and the npm registry verifies the trusted publisher below.
 #
 # Setup (one time, on npmjs.com):
 #   Package page > Settings > Trusted publishing > Add trusted publisher:
@@ -55,33 +55,42 @@ jobs:
           # Publish exactly the tagged commit, not whatever main has moved to.
           ref: ${{ github.event.release.tag_name || github.ref }}
 
-      # v6 is the version npm's own trusted-publishing example uses; its
-      # `package-manager-cache` input is the supported way to keep caching off.
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      # v6 exposes `package-manager-cache`; keep it off because release builds
+      # are not reproducible from a warm cache.
       - uses: actions/setup-node@v6
         with:
-          node-version: 24 # bundles npm 11.6+, above the 11.5.1 OIDC minimum
+          node-version: 24 # runs the build, tests and the version check
           registry-url: https://registry.npmjs.org
           # Release builds are not reproducible from a warm cache, so skip it.
           package-manager-cache: false
 
-      - name: Check npm supports trusted publishing
+      # pnpm >= 11.1.3 implements trusted publishing (OIDC) natively, and the
+      # packageManager pin is 12.x; assert the major version once here.
+      - name: Check pnpm supports trusted publishing
         run: |
-          echo "node $(node -v), npm $(npm -v)"
-          major="$(npm -v | cut -d. -f1)"
-          minor="$(npm -v | cut -d. -f2)"
-          if [ "$major" -lt 11 ] || { [ "$major" -eq 11 ] && [ "$minor" -lt 5 ]; }; then
-            echo "::error::npm $(npm -v) cannot do OIDC publishing — needs >= 11.5.1 (Node >= 22.14)"
+          version="$(pnpm --version)"
+          echo "node $(node -v), pnpm $version"
+          major="${version%%.*}"
+          if [ "$major" -lt 11 ]; then
+            echo "::error::pnpm $version cannot do OIDC publishing — needs >= 11.1.3"
             exit 1
           fi
 
-      # The package has no dependencies and no build step, so the tests run on a
-      # bare checkout. If devDependencies ever appear, install before this step.
+      # devDependencies supply esbuild and TypeScript; the prepare script builds
+      # lib/ during install and again before pnpm publish.
+      - name: Install build dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Run tests
-        run: npm test
+        run: pnpm test
 
       - name: Check package.json version matches the release tag
         run: |
-          version="$(npm pkg get version | tr -d '"')"
+          version="$(node -p "require('./package.json').version")"
           tag="${{ github.event.release.tag_name }}"
           if [ -n "$tag" ]; then
             tag="${tag#v}"
@@ -107,8 +116,10 @@ jobs:
           echo "will publish with --tag $tag"
 
       # No token is passed here. setup-node writes an .npmrc pointing at
-      # ${NODE_AUTH_TOKEN} and exports a dummy value for it; npm 11.5+ prefers
-      # the OIDC exchange over that placeholder. Supplying a real token would
-      # take over and defeat the point. Provenance rides along with OIDC.
+      # ${NODE_AUTH_TOKEN} and exports a dummy value for it; pnpm 12 prefers the
+      # OIDC exchange over that placeholder, so a real token would take over and
+      # defeat the point. Provenance rides along with OIDC.
+      # --no-git-checks: the release checkout is a detached tag and the tarball
+      # has already passed the install/test/version gates above.
       - name: Publish to npm
-        run: npm publish --tag "${{ steps.dist.outputs.tag }}"
+        run: pnpm publish --tag "${{ steps.dist.outputs.tag }}" --no-git-checks

@@ -1,3 +1,4 @@
+// @ts-nocheck - migrated verbatim; precise types follow in a later phase.
 /**
  * Translation engine for the Translation Assistant plugin.
  *
