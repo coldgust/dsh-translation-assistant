@@ -1,3 +1,4 @@
+// @ts-nocheck - migrated verbatim; precise types follow in a later phase.
 /**
  * Host half of the Translation Assistant bundle.
  *
@@ -18,7 +19,7 @@ import path from 'node:path';
 
 const API_PREFIX = '/dsh-translation/api';
 /** Build marker surfaced by the health endpoint; bumped when Host behavior changes. */
-const HOST_REVISION = '10';
+const HOST_REVISION = '11';
 const MAX_BODY_BYTES = 24 * 1024 * 1024;
 const MAX_SEGMENTS = 400;
 const MAX_SEGMENT_CHARS = 20_000;
@@ -1008,6 +1009,22 @@ function createTool(engine, settings) {
 }
 
 /** Services the Host half cannot work without. */
+/**
+ * Lightweight Standard Schema adapter (option B). Cordis only needs a
+ * synchronous ~standard.validate; reusing normalizeSettings keeps the old
+ * forgiving behaviour (bad values fall back to defaults) with no runtime
+ * dependency. Strict validation is deliberately left for a later release.
+ */
+export const Config = {
+  '~standard': {
+    version: 1 as const,
+    vendor: 'dsh-translation-assistant',
+    validate(raw: unknown) {
+      return { value: normalizeSettings(raw) };
+    },
+  },
+};
+
 export const inject = ['llm', 'webServer'];
 
 /**

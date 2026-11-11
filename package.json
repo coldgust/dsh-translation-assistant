@@ -30,18 +30,26 @@
   "homepage": "https://github.com/coldgust/dsh-translation-assistant",
   "bugs": "https://github.com/coldgust/dsh-translation-assistant/issues",
   "scripts": {
-    "test": "node --test 'test/*.test.mjs'",
-    "check:pack": "npm pack --dry-run"
+    "build": "node build.mjs",
+    "dev": "node --watch --watch-path=src build.mjs",
+    "typecheck": "tsc --noEmit",
+    "build:check": "node scripts/build-check.mjs",
+    "pretest": "node build.mjs",
+    "test": "node --test 'test/*.test.ts'",
+    "check": "tsc --noEmit && node build.mjs && node scripts/build-check.mjs && node --test 'test/*.test.ts'",
+    "check:pack": "node scripts/check-pack.mjs",
+    "prepare": "node build.mjs"
   },
   "exports": {
-    ".": "./host/index.js",
-    "./client": "./client.js",
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
   "files": [
-    "host/*.js",
-    "client.js",
+    "lib/client.js",
+    "lib/index.js",
+    "lib/host/*.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
@@ -49,6 +57,25 @@
     "README.zh.md",
     "LICENSE"
   ],
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-client-locale": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-settings": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-host-webserver": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-package-manifest": "0.2.2-rc.1",
+    "@standard-schema/spec": "^1.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=22.18.0",
+    "dsh": ">=0.2.0 <0.3.0"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -61,5 +88,5 @@
       ]
     }
   },
-  "packageManager": "pnpm@10.12.1+sha512.f0dda8580f0ee9481c5c79a1d927b9164f2c478e90992ad268bbb2465a736984391d6333d2c327913578b2804af33474ca554ba29c04a8b13060a717675ae3ac"
+  "packageManager": "pnpm@12.18.0+sha512.9d7882d5dc82147ecfc4e062aa34834e0ad0296710a1837a1115ae012127d36b7109e321ac1598a1dd0a65597681b1e99917e12ed0d749eae91187943363beb3"
 }

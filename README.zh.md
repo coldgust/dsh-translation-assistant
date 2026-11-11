@@ -95,7 +95,7 @@ dsh plugin --profile web add dsh-translation-assistant
 
 ## 实现结构
 
-`host/index.js` 注册同源的 `/dsh-translation/api` 路由和 Agent 工具，`host/engine.js` 负责模型调用（不依赖 Harness），`client.js` 是页面本体。POST 校验来源、上限 24 MiB，每个请求都可固定 `route: { provider, model }`。
+`src/host/index.ts` 注册同源的 `/dsh-translation/api` 路由和 Agent 工具，`src/host/engine.ts` 负责模型调用（不依赖 Harness），`src/client/` 按功能拆成入口、词典、样式、纯函数、叶子组件与主页面。`pnpm build` 生成随包发布的 `lib/` 产物。POST 校验来源、上限 24 MiB，每个请求都可固定 `route: { provider, model }`。
 
 接口明细、配置字段、本机存储、完整限制和维护提示：见 [docs/reference.zh.md](docs/reference.zh.md)。
 
@@ -106,10 +106,11 @@ dsh plugin --profile web add dsh-translation-assistant
 ## 开发与验证
 
 ```bash
-node --test 'test/*.test.mjs'
+pnpm install
+pnpm check
 ```
 
-本目录就是已安装的 bundle：改 `client.js` 会被热替换到已打开的页面，宿主侧改动需重启 Harness。`docs/screenshots/` 里的截图是真实页面在 mock 数据下的渲染，界面改版后重拍。
+档案直接链接本目录：改完源码先跑 `pnpm build`，`lib/client.js` 会热替换到已打开的页面；宿主侧改动需重启 Harness。`docs/screenshots/` 里的截图是真实页面在 mock 数据下的渲染，界面改版后重拍。
 
 ## 常见问题
 
